@@ -259,20 +259,6 @@ export const $propValuesByInstanceSelector = computed(
 
       if (props) {
         for (const prop of props) {
-          if (prop.type === "asset" && prop.name === "width") {
-            const asset = assets.get(prop.value);
-            if (asset?.type === "image") {
-              propValues.set("width", asset.meta.width);
-            }
-          }
-
-          if (prop.type === "asset" && prop.name === "height") {
-            const asset = assets.get(prop.value);
-            if (asset?.type === "image") {
-              propValues.set("height", asset.meta.height);
-            }
-          }
-
           // at this point asset and page either already converted to string
           // or can be ignored
           if (prop.type === "asset" || prop.type === "page") {
@@ -553,8 +539,12 @@ const computeResourceRequest = (
   const request: ResourceRequest = {
     id: resource.id,
     name: resource.name,
-    url: computeExpression(resource.url, values),
     method: resource.method,
+    url: computeExpression(resource.url, values),
+    searchParams: (resource.searchParams ?? []).map(({ name, value }) => ({
+      name,
+      value: computeExpression(value, values),
+    })),
     headers: resource.headers.map(({ name, value }) => ({
       name,
       value: computeExpression(value, values),

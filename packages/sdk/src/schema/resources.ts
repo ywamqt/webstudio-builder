@@ -9,12 +9,6 @@ const Method = z.union([
   z.literal("delete"),
 ]);
 
-const Header = z.object({
-  name: z.string(),
-  // expression
-  value: z.string(),
-});
-
 export const Resource = z.object({
   id: ResourceId,
   name: z.string(),
@@ -22,7 +16,22 @@ export const Resource = z.object({
   method: Method,
   // expression
   url: z.string(),
-  headers: z.array(Header),
+  searchParams: z
+    .array(
+      z.object({
+        name: z.string(),
+        // expression
+        value: z.string(),
+      })
+    )
+    .optional(),
+  headers: z.array(
+    z.object({
+      name: z.string(),
+      // expression
+      value: z.string(),
+    })
+  ),
   // expression
   body: z.optional(z.string()),
 });
@@ -35,7 +44,20 @@ export const ResourceRequest = z.object({
   name: z.string(),
   method: Method,
   url: z.string(),
-  headers: z.array(Header),
+  searchParams: z.array(
+    z.object({
+      name: z.string(),
+      // can be string or object which should be serialized
+      value: z.unknown(),
+    })
+  ),
+  headers: z.array(
+    z.object({
+      name: z.string(),
+      // can be string or object which should be serialized
+      value: z.unknown(),
+    })
+  ),
   body: z.optional(z.unknown()),
 });
 
