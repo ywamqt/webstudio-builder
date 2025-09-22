@@ -519,7 +519,8 @@ const Publish = ({
               status: "PENDING" as const,
             };
 
-      if (status === "PUBLISHED") {
+      if (status === "PUBLISHED" || status === "PENDING") {
+        //if (status === "PUBLISHED") {
         toast.success(
           <>
             The project has been successfully published.{" "}
