@@ -137,6 +137,7 @@ export const domainRouter = router({
           builderOrigin: env.BUILDER_ORIGIN,
           githubSha: env.GITHUB_SHA,
           buildId: build.id,
+          domains: domains,
           // preview support
           branchName: env.GITHUB_REF_NAME,
           destination: input.destination,
