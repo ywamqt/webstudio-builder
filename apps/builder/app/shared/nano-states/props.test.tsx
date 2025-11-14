@@ -36,6 +36,7 @@ import { $resourcesCache, getResourceKey } from "../resources";
 const initialSystem = {
   origin: "https://undefined.wstd.work",
   params: {},
+  pathname: "/",
   search: {},
 };
 
@@ -797,6 +798,7 @@ test("compute resource variable values", () => {
   const resourceVariable = new ResourceValue("resourceVariable", {
     url: expression`""`,
     method: "get",
+    searchParams: [],
     headers: [],
   });
   const data = renderData(
@@ -868,6 +870,7 @@ test("compute parameter and resource variables without values to make it availab
   const resourceVariable = new ResourceValue("resourceVariable", {
     url: expression`""`,
     method: "get",
+    searchParams: [],
     headers: [],
   });
   const parameterVariable = new Parameter("parameterVariable");
@@ -915,6 +918,7 @@ test("provide page system variable value", () => {
       ?.get(systemId)
   ).toEqual({
     params: { slug: "my-post" },
+    pathname: "/",
     search: {},
     origin: "https://undefined.wstd.work",
   });
@@ -946,6 +950,7 @@ test("provide global system variable value", () => {
   });
   const updatedSystem = {
     params: { slug: "my-post" },
+    pathname: "/",
     search: {},
     origin: "https://undefined.wstd.work",
   };

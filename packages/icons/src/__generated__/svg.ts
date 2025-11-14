@@ -116,11 +116,13 @@ export const CheckboxCheckedIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill
 
 export const ChevronDownIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="100%" height="100%" style="display: block;"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="m4 6 4 4 4-4"/></svg>`;
 
+export const ChevronFilledUpIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="100%" height="100%" style="display: block;"><path fill="currentColor" d="M13 11 8 5l-5 6"/></svg>`;
+
 export const ChevronLeftIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="100%" height="100%" style="display: block;"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.3" d="m9.256 4.499-3.512 3.5 3.512 3.502"/></svg>`;
 
 export const ChevronRightIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="100%" height="100%" style="display: block;"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="m6 12 4-4-4-4"/></svg>`;
 
-export const ChevronUpIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="100%" height="100%" style="display: block;"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.3" d="m11.501 9.256-3.5-3.512-3.502 3.512"/></svg>`;
+export const ChevronUpIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="100%" height="100%" style="display: block;"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M12 10 8 6l-4 4"/></svg>`;
 
 export const ChevronsLeftIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="100%" height="100%" style="display: block;"><path stroke="#000" stroke-linecap="round" stroke-linejoin="round" d="M7.069 12.656 2.413 8l4.656-4.656M13.587 12.656 8.931 8l4.656-4.656"/></svg>`;
 
@@ -153,6 +155,8 @@ export const DiscordIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" 
 export const DotIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="100%" height="100%" style="display: block;"><path fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/></svg>`;
 
 export const DottedBorderIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="100%" height="100%" style="display: block;"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M5.464 8a.667.667 0 1 0 1.333 0 .667.667 0 0 0-1.333 0ZM9.202 8a.667.667 0 1 0 1.334 0 .667.667 0 0 0-1.334 0ZM12.94 8a.667.667 0 1 0 1.334 0 .667.667 0 0 0-1.333 0ZM1.726 8a.667.667 0 1 0 1.333 0 .667.667 0 0 0-1.333 0Z"/></svg>`;
+
+export const DownloadIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-download-icon lucide-download" viewBox="0 0 24 24" width="100%" height="100%" style="display: block;"><path d="M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>`;
 
 export const DragHandleIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="100%" height="100%" style="display: block;"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M6 8.667a.667.667 0 1 0 0-1.334.667.667 0 0 0 0 1.334ZM6 4a.667.667 0 1 0 0-1.333A.667.667 0 0 0 6 4ZM6 13.333A.667.667 0 1 0 6 12a.667.667 0 0 0 0 1.333ZM10 8.667a.667.667 0 1 0 0-1.334.667.667 0 0 0 0 1.334ZM10 4a.667.667 0 1 0 0-1.333A.667.667 0 0 0 10 4ZM10 13.333A.667.667 0 1 0 10 12a.667.667 0 0 0 0 1.333Z"/></svg>`;
 
