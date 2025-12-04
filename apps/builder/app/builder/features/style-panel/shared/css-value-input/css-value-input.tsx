@@ -335,7 +335,8 @@ const itemToString = (item: CssValueInputValue | null) => {
     return "";
   }
   if (item.type === "var") {
-    return `var(--${item.value})`;
+    // Use toValue to include fallback when present
+    return toValue(item as StyleValue);
   }
   if (item.type === "keyword") {
     // E.g. we want currentcolor to be lower case
@@ -932,7 +933,8 @@ export const CssValueInput = ({
                             {toValue(item.fallback)}
                           </Text>
                         )}
-                        {item.fallback?.type === "rgb" && (
+                        {(item.fallback?.type === "rgb" ||
+                          item.fallback?.type === "color") && (
                           <ColorThumb color={toValue(item.fallback)} />
                         )}
                       </Flex>
