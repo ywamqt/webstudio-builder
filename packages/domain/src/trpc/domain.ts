@@ -2,7 +2,11 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import * as projectApi from "@webstudio-is/project/index.server";
 import { createProductionBuild } from "@webstudio-is/project-build/index.server";
-import { router, procedure } from "@webstudio-is/trpc-interface/index.server";
+import {
+  router,
+  procedure,
+  createErrorResponse,
+} from "@webstudio-is/trpc-interface/index.server";
 import { Templates } from "@webstudio-is/sdk";
 import { db } from "../db";
 import { isDomainUsingCloudflareNameservers } from "../rdap";
@@ -18,10 +22,7 @@ export const domainRouter = router({
         applicationId: result.applicationId,
       } as const;
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      } as const;
+      return createErrorResponse(error);
     }
   }),
 
@@ -48,10 +49,7 @@ export const domainRouter = router({
           project,
         } as const;
       } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        } as const;
+        return createErrorResponse(error);
       }
     }),
   publish: procedure
@@ -126,8 +124,6 @@ export const domainRouter = router({
 
         const { deploymentTrpc, env } = ctx.deployment;
 
-        console.info("input.destination", input.destination);
-
         if (env.BUILDER_ORIGIN === undefined) {
           throw new Error("Missing env.BUILDER_ORIGIN");
         }
@@ -151,11 +147,7 @@ export const domainRouter = router({
 
         return result;
       } catch (error) {
-        console.error(error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        } as const;
+        return createErrorResponse(error);
       }
     }),
   /**
@@ -180,10 +172,7 @@ export const domainRouter = router({
 
         return { success: true } as const;
       } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        } as const;
+        return createErrorResponse(error);
       }
     }),
 
@@ -214,10 +203,7 @@ export const domainRouter = router({
           ctx
         );
       } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        } as const;
+        return createErrorResponse(error);
       }
     }),
 
@@ -238,10 +224,7 @@ export const domainRouter = router({
           ctx
         );
       } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        } as const;
+        return createErrorResponse(error);
       }
     }),
   remove: procedure
@@ -261,10 +244,7 @@ export const domainRouter = router({
           ctx
         );
       } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        } as const;
+        return createErrorResponse(error);
       }
     }),
   countTotalDomains: procedure.query(async ({ ctx }) => {
@@ -284,10 +264,7 @@ export const domainRouter = router({
       const data = await db.countTotalDomains(ownerId, ctx);
       return { success: true, data } as const;
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      } as const;
+      return createErrorResponse(error);
     }
   }),
 
@@ -305,10 +282,7 @@ export const domainRouter = router({
           ctx
         );
       } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        } as const;
+        return createErrorResponse(error);
       }
     }),
 });
