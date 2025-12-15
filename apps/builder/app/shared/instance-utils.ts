@@ -2,6 +2,7 @@ import { current, isDraft } from "immer";
 import { nanoid } from "nanoid";
 import { toast } from "@webstudio-is/design-system";
 import { equalMedia, type StyleValue } from "@webstudio-is/css-engine";
+import { showAttribute } from "@webstudio-is/react-sdk";
 import {
   type Instances,
   type StyleSource,
@@ -18,6 +19,7 @@ import {
   type WebstudioData,
   type Resource,
   type WsComponentMeta,
+  type Pages,
   getStyleDeclKey,
   findTreeInstanceIds,
   findTreeInstanceIdsExcludingSlotDescendants,
@@ -63,6 +65,7 @@ import {
   $awareness,
   $selectedInstancePath,
   $selectedPage,
+  findAwarenessByInstanceId,
   getInstancePath,
   selectInstance,
   type InstancePath,
@@ -77,6 +80,7 @@ import {
   findClosestNonTextualContainer,
   isRichTextTree,
   isTreeSatisfyingContentModel,
+  isRichTextContent,
 } from "./content-model";
 import type { Project } from "@webstudio-is/project";
 import { getInstanceLabel } from "~/builder/shared/instance-label";
@@ -605,6 +609,220 @@ export const deleteInstanceMutable = (
     }
   }
   return true;
+};
+
+export const unwrapInstanceMutable = ({
+  instances,
+  props,
+  metas,
+  selectedItem,
+  parentItem,
+}: {
+  instances: Map<string, Instance>;
+  props: Props;
+  metas: Map<string, WsComponentMeta>;
+  selectedItem: {
+    instanceSelector: InstanceSelector;
+    instance: { id: string };
+  };
+  parentItem: { instanceSelector: InstanceSelector; instance: { id: string } };
+}): { success: boolean; error?: string } => {
+  const instanceSelector = findClosestNonTextualContainer({
+    metas,
+    props,
+    instances,
+    instanceSelector: parentItem.instanceSelector,
+  });
+  if (parentItem.instanceSelector.join() !== instanceSelector.join()) {
+    return { success: false, error: "Cannot unwrap textual instance" };
+  }
+  const parentInstance = instances.get(parentItem.instance.id);
+  const selectedInstance = instances.get(selectedItem.instance.id);
+  if (!parentInstance || !selectedInstance) {
+    return { success: false, error: "Instance not found" };
+  }
+
+  // Get grandparent to replace parent with selected
+  const grandparentId = parentItem.instanceSelector[1];
+  if (!grandparentId) {
+    return { success: false, error: "Cannot unwrap instance at root level" };
+  }
+  const grandparentInstance = instances.get(grandparentId);
+  if (!grandparentInstance) {
+    return { success: false, error: "Grandparent instance not found" };
+  }
+
+  // Remove selected instance from parent's children
+  const selectedIndexInParent = parentInstance.children.findIndex(
+    (child) => child.type === "id" && child.value === selectedItem.instance.id
+  );
+  if (selectedIndexInParent !== -1) {
+    parentInstance.children.splice(selectedIndexInParent, 1);
+  }
+
+  // If parent has no more children, delete it
+  if (parentInstance.children.length === 0) {
+    instances.delete(parentItem.instance.id);
+  }
+
+  // Add selected instance to grandparent at parent's position
+  const parentIndex = grandparentInstance.children.findIndex(
+    (child) => child.type === "id" && child.value === parentItem.instance.id
+  );
+  if (parentIndex !== -1) {
+    if (parentInstance.children.length === 0) {
+      // Replace parent with selected if parent is now empty
+      grandparentInstance.children[parentIndex] = {
+        type: "id",
+        value: selectedItem.instance.id,
+      };
+    } else {
+      // Insert selected after parent if parent still has children
+      grandparentInstance.children.splice(parentIndex + 1, 0, {
+        type: "id",
+        value: selectedItem.instance.id,
+      });
+    }
+  }
+
+  const matches = isTreeSatisfyingContentModel({
+    instances,
+    props,
+    metas,
+    instanceSelector: [
+      selectedItem.instance.id,
+      ...parentItem.instanceSelector.slice(1),
+    ],
+  });
+  if (matches === false) {
+    return { success: false, error: "Cannot unwrap instance" };
+  }
+
+  return { success: true };
+};
+
+export const canUnwrapInstance = (instancePath: InstancePath) => {
+  // global root or body are selected
+  if (instancePath.length < 2) {
+    return false;
+  }
+  const [, parentItem] = instancePath;
+
+  // Prevent unwrapping if parent is the root instance (e.g., Body)
+  const rootInstanceId = $selectedPage.get()?.rootInstanceId;
+  if (
+    rootInstanceId !== undefined &&
+    parentItem.instance.id === rootInstanceId
+  ) {
+    return false;
+  }
+
+  // Check if parent is inside a textual container
+  const instances = $instances.get();
+  const props = $props.get();
+  const metas = $registeredComponentMetas.get();
+
+  const instanceSelector = findClosestNonTextualContainer({
+    metas,
+    props,
+    instances,
+    instanceSelector: parentItem.instanceSelector,
+  });
+
+  if (parentItem.instanceSelector.join() !== instanceSelector.join()) {
+    return false;
+  }
+
+  return true;
+};
+
+export const toggleInstanceShow = (instanceId: Instance["id"]) => {
+  serverSyncStore.createTransaction([$props], (props) => {
+    const allProps = Array.from(props.values());
+    const instanceProps = allProps.filter(
+      (prop) => prop.instanceId === instanceId
+    );
+    let showProp = instanceProps.find((prop) => prop.name === showAttribute);
+
+    // Toggle the show value
+    const newValue = showProp?.type === "boolean" ? !showProp.value : false;
+
+    if (showProp === undefined) {
+      showProp = {
+        id: nanoid(),
+        instanceId,
+        name: showAttribute,
+        type: "boolean",
+        value: newValue,
+      };
+    }
+    if (showProp.type === "boolean") {
+      props.set(showProp.id, { ...showProp, value: newValue });
+    }
+  });
+};
+
+export const wrapIn = (component: string, tag?: string) => {
+  const instancePath = $selectedInstancePath.get();
+  // global root or body are selected
+  if (instancePath === undefined || instancePath.length === 1) {
+    return;
+  }
+  const [selectedItem, parentItem] = instancePath;
+  const selectedInstance = selectedItem.instance;
+  const newInstanceId = nanoid();
+  const newInstanceSelector = [newInstanceId, ...parentItem.instanceSelector];
+  const metas = $registeredComponentMetas.get();
+
+  try {
+    updateWebstudioData((data) => {
+      const isContent = isRichTextContent({
+        instanceSelector: selectedItem.instanceSelector,
+        instances: data.instances,
+        props: data.props,
+        metas,
+      });
+      if (isContent) {
+        toast.error(`Cannot wrap textual content`);
+        throw Error("Abort transaction");
+      }
+      const newInstance: Instance = {
+        type: "instance",
+        id: newInstanceId,
+        component,
+        children: [{ type: "id", value: selectedInstance.id }],
+      };
+
+      if (tag || component === elementComponent) {
+        newInstance.tag = tag ?? "div";
+      }
+      const parentInstance = data.instances.get(parentItem.instance.id);
+      data.instances.set(newInstanceId, newInstance);
+      if (parentInstance) {
+        for (const child of parentInstance.children) {
+          if (child.type === "id" && child.value === selectedInstance.id) {
+            child.value = newInstanceId;
+          }
+        }
+      }
+
+      const isSatisfying = isTreeSatisfyingContentModel({
+        instances: data.instances,
+        props: data.props,
+        metas,
+        instanceSelector: newInstanceSelector,
+      });
+
+      if (isSatisfying === false) {
+        const label = getInstanceLabel({ component, tag });
+        toast.error(`Cannot wrap in ${label}`);
+        throw Error("Abort transaction");
+      }
+    });
+    selectInstance(newInstanceSelector);
+  } catch {
+    // do nothing
+  }
 };
 
 const traverseStyleValue = (
@@ -1383,4 +1601,36 @@ export const findClosestInsertable = (
     parentSelector,
     position: lastChildPosition + 1,
   };
+};
+
+/**
+ * Build the ancestor path array for an instance.
+ * Returns an array of labels for all ancestors from root to parent.
+ */
+export const buildInstancePath = (
+  instanceId: Instance["id"],
+  pages: Pages,
+  instances: Instances
+): string[] => {
+  const awareness = findAwarenessByInstanceId(pages, instances, instanceId);
+  if (!awareness.instanceSelector) {
+    return [];
+  }
+
+  const instancePath = getInstancePath(
+    awareness.instanceSelector,
+    instances,
+    undefined,
+    undefined
+  );
+
+  if (!instancePath) {
+    return [];
+  }
+
+  return instancePath
+    .slice()
+    .reverse()
+    .slice(0, -1) // Remove the instance itself (last element after reverse), keep only ancestors
+    .map(({ instance }) => getInstanceLabel(instance));
 };

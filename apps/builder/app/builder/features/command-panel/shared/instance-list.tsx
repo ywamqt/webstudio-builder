@@ -9,23 +9,20 @@ import {
   Flex,
   ScrollArea,
   Text,
-  Button,
-  Kbd,
 } from "@webstudio-is/design-system";
 import type { Instance } from "@webstudio-is/sdk";
-import {
-  $instances,
-  $pages,
-  $registeredComponentMetas,
-} from "~/shared/nano-states";
+import { $instances, $pages } from "~/shared/nano-states";
 import { getInstanceLabel } from "~/builder/shared/instance-label";
 import { $awareness, findAwarenessByInstanceId } from "~/shared/awareness";
+import { buildInstancePath } from "~/shared/instance-utils";
 import { $commandContent } from "../command-state";
 import { $activeInspectorPanel } from "~/builder/shared/nano-states";
+import { BackButton } from "./back-button";
 
 export type InstanceOption = {
   label: string;
   id: string;
+  path: string[];
 };
 
 type InstanceListProps = {
@@ -35,17 +32,19 @@ type InstanceListProps = {
 
 export const InstanceList = ({ instanceIds, onSelect }: InstanceListProps) => {
   const instances = $instances.get();
-  const metas = $registeredComponentMetas.get();
+  const pages = $pages.get();
   const usedInInstances: InstanceOption[] = [];
   for (const instanceId of instanceIds) {
     const instance = instances.get(instanceId);
-    const meta = metas.get(instance?.component ?? "");
-    if (instance && meta) {
-      usedInInstances.push({
-        label: getInstanceLabel(instance),
-        id: instance.id,
-      });
+    if (!instance || !pages) {
+      continue;
     }
+    const path = buildInstancePath(instanceId, pages, instances);
+    usedInInstances.push({
+      label: getInstanceLabel(instance),
+      id: instance.id,
+      path,
+    });
   }
   const [search, setSearch] = useState("");
 
@@ -68,6 +67,7 @@ export const InstanceList = ({ instanceIds, onSelect }: InstanceListProps) => {
     <>
       <CommandInput
         action="select"
+        placeholder="Search instances..."
         value={search}
         onValueChange={setSearch}
         onKeyDown={(event) => {
@@ -86,7 +86,7 @@ export const InstanceList = ({ instanceIds, onSelect }: InstanceListProps) => {
                   <Text color="subtle">No instances found</Text>
                 </Flex>
               ) : (
-                matches.map(({ id, label }) => (
+                matches.map(({ id, label, path }) => (
                   <CommandItem
                     key={id}
                     value={id}
@@ -95,6 +95,13 @@ export const InstanceList = ({ instanceIds, onSelect }: InstanceListProps) => {
                     }}
                   >
                     <Text variant="labelsTitleCase">{label}</Text>
+                    <Text
+                      color="moreSubtle"
+                      truncate
+                      css={{ maxWidth: "30ch" }}
+                    >
+                      /{path.join("/")}
+                    </Text>
                   </CommandItem>
                 ))
               )}
@@ -104,9 +111,7 @@ export const InstanceList = ({ instanceIds, onSelect }: InstanceListProps) => {
       </Flex>
       <CommandGroupFooter>
         <Flex grow>
-          <Button tabIndex={-1} color="ghost" onClick={goBack}>
-            Back <Kbd value={["backspace"]} />
-          </Button>
+          <BackButton />
         </Flex>
       </CommandGroupFooter>
     </>

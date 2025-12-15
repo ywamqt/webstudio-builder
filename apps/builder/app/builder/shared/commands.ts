@@ -1,10 +1,8 @@
-import { nanoid } from "nanoid";
 import {
   blockTemplateComponent,
   elementComponent,
   isComponentDetachable,
 } from "@webstudio-is/sdk";
-import type { Instance } from "@webstudio-is/sdk";
 import { toast } from "@webstudio-is/design-system";
 import { createCommandsEmitter, type Command } from "~/shared/commands-emitter";
 import {
@@ -29,6 +27,8 @@ import {
   insertWebstudioFragmentAt,
   insertWebstudioFragmentCopy,
   updateWebstudioData,
+  unwrapInstanceMutable,
+  canUnwrapInstance,
 } from "~/shared/instance-utils";
 import type { InstanceSelector } from "~/shared/tree-utils";
 import { serverSyncStore } from "~/shared/sync";
@@ -41,15 +41,12 @@ import {
 } from "./nano-states";
 import { $selectedInstancePath, selectInstance } from "~/shared/awareness";
 import { openCommandPanel } from "../features/command-panel";
+import { showWrapComponentsList } from "../features/command-panel/groups/wrap-group";
 import { builderApi } from "~/shared/builder-api";
 import { getSetting, setSetting } from "./client-settings";
 import { findAvailableVariables } from "~/shared/data-variables";
 import { atom } from "nanostores";
-import {
-  findClosestNonTextualContainer,
-  isRichTextContent,
-  isTreeSatisfyingContentModel,
-} from "~/shared/content-model";
+import { isTreeSatisfyingContentModel } from "~/shared/content-model";
 import { generateFragmentFromHtml } from "~/shared/html";
 import { generateFragmentFromTailwind } from "~/shared/tailwind/tailwind";
 import { denormalizeSrcProps } from "~/shared/copy-paste/asset-upload";
@@ -61,6 +58,12 @@ import { openDeleteUnusedTokensDialog } from "~/builder/shared/style-source-util
 import { openDeleteUnusedDataVariablesDialog } from "~/builder/shared/data-variable-utils";
 import { openDeleteUnusedCssVariablesDialog } from "~/builder/shared/css-variable-utils";
 import { openKeyboardShortcutsDialog } from "~/builder/features/keyboard-shortcuts-dialog";
+import {
+  copyInstance,
+  pasteInstance,
+  cutInstance,
+} from "~/shared/copy-paste/init-copy-paste";
+import { toggleInstanceShow } from "~/shared/instance-utils";
 
 export const $styleSourceInputElement = atom<HTMLInputElement | undefined>();
 
@@ -151,65 +154,6 @@ export const deleteSelectedInstance = () => {
   });
 };
 
-export const wrapIn = (component: string, tag?: string) => {
-  const instancePath = $selectedInstancePath.get();
-  // global root or body are selected
-  if (instancePath === undefined || instancePath.length === 1) {
-    return;
-  }
-  const [selectedItem, parentItem] = instancePath;
-  const selectedInstance = selectedItem.instance;
-  const newInstanceId = nanoid();
-  const newInstanceSelector = [newInstanceId, ...parentItem.instanceSelector];
-  const metas = $registeredComponentMetas.get();
-  try {
-    updateWebstudioData((data) => {
-      const isContent = isRichTextContent({
-        instanceSelector: selectedItem.instanceSelector,
-        instances: data.instances,
-        props: data.props,
-        metas,
-      });
-      if (isContent) {
-        toast.error(`Cannot wrap textual content`);
-        throw Error("Abort transaction");
-      }
-      const newInstance: Instance = {
-        type: "instance",
-        id: newInstanceId,
-        component,
-        children: [{ type: "id", value: selectedInstance.id }],
-      };
-      if (tag || component === elementComponent) {
-        newInstance.tag = tag ?? "div";
-      }
-      const parentInstance = data.instances.get(parentItem.instance.id);
-      data.instances.set(newInstanceId, newInstance);
-      if (parentInstance) {
-        for (const child of parentInstance.children) {
-          if (child.type === "id" && child.value === selectedInstance.id) {
-            child.value = newInstanceId;
-          }
-        }
-      }
-      const isSatisfying = isTreeSatisfyingContentModel({
-        instances: data.instances,
-        props: data.props,
-        metas,
-        instanceSelector: newInstanceSelector,
-      });
-      if (isSatisfying === false) {
-        const label = getInstanceLabel({ component, tag });
-        toast.error(`Cannot wrap in ${label}`);
-        throw Error("Abort transaction");
-      }
-    });
-    selectInstance(newInstanceSelector);
-  } catch {
-    // do nothing
-  }
-};
-
 export const replaceWith = (component: string, tag?: string) => {
   const instancePath = $selectedInstancePath.get();
   // global root or body are selected
@@ -265,47 +209,34 @@ export const replaceWith = (component: string, tag?: string) => {
   }
 };
 
-export const unwrap = () => {
+const unwrap = () => {
   const instancePath = $selectedInstancePath.get();
-  // global root or body are selected
-  if (instancePath === undefined || instancePath.length === 1) {
+  if (instancePath === undefined || !canUnwrapInstance(instancePath)) {
     return;
   }
+
   const [selectedItem, parentItem] = instancePath;
+
   try {
     updateWebstudioData((data) => {
-      const instanceSelector = findClosestNonTextualContainer({
-        metas: $registeredComponentMetas.get(),
-        props: data.props,
-        instances: data.instances,
-        instanceSelector: selectedItem.instanceSelector,
-      });
-      if (selectedItem.instanceSelector.join() !== instanceSelector.join()) {
-        toast.error(`Cannot unwrap textual instance`);
-        throw Error("Abort transaction");
-      }
-      const parentInstance = data.instances.get(parentItem.instance.id);
-      const selectedInstance = data.instances.get(selectedItem.instance.id);
-      data.instances.delete(selectedItem.instance.id);
-      if (parentInstance && selectedInstance) {
-        const index = parentInstance.children.findIndex(
-          (child) =>
-            child.type === "id" && child.value === selectedItem.instance.id
-        );
-        parentInstance.children.splice(index, 1, ...selectedInstance.children);
-      }
-      const matches = isTreeSatisfyingContentModel({
+      const result = unwrapInstanceMutable({
         instances: data.instances,
         props: data.props,
         metas: $registeredComponentMetas.get(),
-        instanceSelector: parentItem.instanceSelector,
+        selectedItem,
+        parentItem,
       });
-      if (matches === false) {
-        toast.error(`Cannot unwrap instance`);
+
+      if (!result.success) {
+        toast.error(result.error ?? "Cannot unwrap instance");
         throw Error("Abort transaction");
       }
     });
-    selectInstance(parentItem.instanceSelector);
+    // After unwrap, select the child that replaced the parent
+    selectInstance([
+      selectedItem.instance.id,
+      ...parentItem.instanceSelector.slice(1),
+    ]);
   } catch {
     // do nothing
   }
@@ -516,6 +447,41 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
     makeBreakpointCommand("selectBreakpoint8", 8),
     makeBreakpointCommand("selectBreakpoint9", 9),
     {
+      name: "copy",
+      description: "Copy selected instance",
+      category: "Navigator",
+      defaultHotkeys: ["meta+c", "ctrl+c"],
+      disableOnInputLikeControls: true,
+      handler: copyInstance,
+    },
+    {
+      name: "paste",
+      description: "Paste copied instance",
+      category: "Navigator",
+      defaultHotkeys: ["meta+v", "ctrl+v"],
+      disableOnInputLikeControls: true,
+      handler: pasteInstance,
+    },
+    {
+      name: "cut",
+      description: "Cut selected instance",
+      category: "Navigator",
+      defaultHotkeys: ["meta+x", "ctrl+x"],
+      disableOnInputLikeControls: true,
+      handler: cutInstance,
+    },
+    {
+      name: "toggleShow",
+      description: "Toggle instance visibility",
+      category: "Navigator",
+      handler: () => {
+        const instancePath = $selectedInstancePath.get();
+        if (instancePath?.[0]) {
+          toggleInstanceShow(instancePath[0].instance.id);
+        }
+      },
+    },
+    {
       name: "deleteInstanceBuilder",
       label: "Delete Instance",
       description: "Delete selected instance",
@@ -601,16 +567,13 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
       },
     },
     {
-      name: "wrapInElement",
-      label: "Wrap in an Element",
-      description: "Wrap in new element",
-      handler: () => wrapIn(elementComponent),
-    },
-    {
-      name: "wrapInLink",
-      label: "Wrap in a Link",
-      description: "Wrap in link element",
-      handler: () => wrapIn(elementComponent, "a"),
+      name: "wrap",
+      label: "Wrap",
+      description: "Wrap",
+      keepCommandPanelOpen: true,
+      handler: () => {
+        showWrapComponentsList();
+      },
     },
     {
       name: "unwrap",
