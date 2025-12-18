@@ -33,6 +33,8 @@ import {
   $isContentMode,
   $userPlanFeatures,
   subscribeModifierKeys,
+  $stagingUsername,
+  $stagingPassword,
 } from "~/shared/nano-states";
 import { $settings, type Settings } from "./shared/client-settings";
 import { builderUrl, getCanvasUrl } from "~/shared/router-utils";
@@ -57,10 +59,11 @@ import { migrateWebstudioDataMutable } from "~/shared/webstudio-data-migrator";
 import { Loading, LoadingBackground } from "./shared/loading";
 import { mergeRefs } from "@react-aria/utils";
 import { CommandPanel } from "./features/command-panel";
-import { DeleteUnusedTokensDialog } from "~/builder/shared/style-source-utils";
+import { DeleteUnusedTokensDialog } from "~/builder/shared/style-source-actions";
 import { DeleteUnusedDataVariablesDialog } from "~/builder/shared/data-variable-utils";
 import { DeleteUnusedCssVariablesDialog } from "~/builder/shared/css-variable-utils";
 import { KeyboardShortcutsDialog } from "./features/keyboard-shortcuts-dialog";
+import { TokenConflictDialog } from "~/shared/token-conflict-dialog";
 
 import {
   initCopyPaste,
@@ -223,6 +226,8 @@ export type BuilderProps = {
   authPermit: AuthPermit;
   authTokenPermissions: TokenPermissions;
   userPlanFeatures: UserPlanFeatures;
+  stagingUsername: string;
+  stagingPassword: string;
 };
 
 export const Builder = ({
@@ -231,6 +236,8 @@ export const Builder = ({
   authPermit,
   userPlanFeatures,
   authTokenPermissions,
+  stagingUsername,
+  stagingPassword,
 }: BuilderProps) => {
   useMount(initBuilderApi);
 
@@ -240,6 +247,8 @@ export const Builder = ({
     $authToken.set(authToken);
     $userPlanFeatures.set(userPlanFeatures);
     $authTokenPermissions.set(authTokenPermissions);
+    $stagingUsername.set(stagingUsername);
+    $stagingPassword.set(stagingPassword);
 
     const controller = new AbortController();
 
@@ -465,6 +474,7 @@ export const Builder = ({
         <DeleteUnusedDataVariablesDialog />
         <DeleteUnusedCssVariablesDialog />
         <KeyboardShortcutsDialog />
+        <TokenConflictDialog />
         <RemoteDialog />
       </div>
     </TooltipProvider>
