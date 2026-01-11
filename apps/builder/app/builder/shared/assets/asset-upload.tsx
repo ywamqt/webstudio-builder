@@ -6,7 +6,7 @@ import { IMAGE_MIME_TYPES, detectAssetType } from "@webstudio-is/sdk";
 import { MAX_UPLOAD_SIZE, toBytes } from "@webstudio-is/asset-uploader";
 import type { AssetType } from "@webstudio-is/asset-uploader";
 import { FONT_MIME_TYPES } from "@webstudio-is/fonts";
-import { uploadAssets } from "./use-assets";
+import { uploadAssets } from "./upload-assets";
 import { $authPermit } from "~/shared/nano-states";
 
 const maxSize = toBytes(MAX_UPLOAD_SIZE);
@@ -121,13 +121,13 @@ const EnabledAssetUpload = ({ accept, type }: AssetUploadProps) => {
   );
 };
 
-export const AssetUpload = ({ type }: AssetUploadProps) => {
+export const AssetUpload = ({ type, accept }: AssetUploadProps) => {
   const authPermit = useStore($authPermit);
 
   if (authPermit !== "view") {
     // Split into a separate component to avoid using `useUpload` hook unnecessarily
     // (It's hard to mock this hook in storybook)
-    return <EnabledAssetUpload type={type} />;
+    return <EnabledAssetUpload type={type} accept={accept} />;
   }
 
   return (

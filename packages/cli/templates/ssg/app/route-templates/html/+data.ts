@@ -1,5 +1,4 @@
 import type { PageContextServer } from "vike/types";
-import { redirect } from "vike/abort";
 import { isLocalResource, loadResources } from "@webstudio-is/sdk/runtime";
 import { getPageMeta, getResources } from "__SERVER__";
 
@@ -49,14 +48,6 @@ export const data = async (pageContext: PageContextServer) => {
     getResources({ system }).data
   );
   const pageMeta = getPageMeta({ system, resources });
-
-  if (pageMeta.redirect) {
-    const status =
-      pageMeta.status === 301 || pageMeta.status === 302
-        ? pageMeta.status
-        : 302;
-    throw redirect(pageMeta.redirect, status);
-  }
 
   return {
     url: url.href,
