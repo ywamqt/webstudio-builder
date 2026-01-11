@@ -13,7 +13,7 @@ import {
   $selectedBreakpoint,
   $selectedBreakpointId,
 } from "~/shared/nano-states";
-import { closeCommandPanel } from "../command-state";
+import { closeCommandPanel, $isCommandPanelOpen } from "../command-state";
 import type { BaseOption } from "../shared/types";
 import { setCanvasWidth } from "~/builder/shared/calc-canvas-width";
 
@@ -24,11 +24,24 @@ export type BreakpointOption = BaseOption & {
 };
 
 export const $breakpointOptions = computed(
-  [$breakpoints, $selectedBreakpoint],
-  (breakpoints, selectedBreakpoint) => {
-    const sortedBreakpoints = Array.from(breakpoints.values()).sort(
-      compareMedia
+  [$isCommandPanelOpen, $breakpoints, $selectedBreakpoint],
+  (isOpen, breakpoints, selectedBreakpoint) => {
+    if (!isOpen) {
+      return [];
+    }
+    const allBreakpoints = Array.from(breakpoints.values());
+
+    // Separate custom condition breakpoints from width-based
+    const customBreakpoints = allBreakpoints.filter(
+      (bp) => bp.condition !== undefined
     );
+    const widthBasedBreakpoints = allBreakpoints
+      .filter((bp) => bp.condition === undefined)
+      .sort(compareMedia);
+
+    // Combine with custom conditions at the end
+    const sortedBreakpoints = [...widthBasedBreakpoints, ...customBreakpoints];
+
     const breakpointOptions: BreakpointOption[] = [];
     for (let index = 0; index < sortedBreakpoints.length; index += 1) {
       const breakpoint = sortedBreakpoints[index];
@@ -36,7 +49,9 @@ export const $breakpointOptions = computed(
         continue;
       }
       const width =
-        (breakpoint.minWidth ?? breakpoint.maxWidth)?.toString() ?? "";
+        breakpoint.condition ??
+        (breakpoint.minWidth ?? breakpoint.maxWidth)?.toString() ??
+        "";
       breakpointOptions.push({
         terms: ["breakpoints", breakpoint.label, width],
         type: "breakpoint",
@@ -49,6 +64,10 @@ export const $breakpointOptions = computed(
 );
 
 const getBreakpointLabel = (breakpoint: Breakpoint) => {
+  if (breakpoint.condition) {
+    return `${breakpoint.label}: ${breakpoint.condition}`;
+  }
+
   let label = "All Sizes";
   if (breakpoint.minWidth !== undefined) {
     label = `≥ ${breakpoint.minWidth} PX`;
@@ -67,8 +86,12 @@ export const BreakpointsGroup = ({
   return (
     <CommandGroup
       name="breakpoint"
-      heading={<CommandGroupHeading>Breakpoints</CommandGroupHeading>}
-      actions={["select"]}
+      heading={
+        <CommandGroupHeading>
+          Breakpoints ({options.length})
+        </CommandGroupHeading>
+      }
+      actions={[{ name: "select", label: "Select" }]}
     >
       {options.map(({ breakpoint, keys }) => (
         <CommandItem
@@ -81,9 +104,7 @@ export const BreakpointsGroup = ({
             setCanvasWidth(breakpoint.id);
           }}
         >
-          <Text variant="labelsTitleCase">
-            {getBreakpointLabel(breakpoint)}
-          </Text>
+          <Text>{getBreakpointLabel(breakpoint)}</Text>
           <Kbd value={keys} />
         </CommandItem>
       ))}

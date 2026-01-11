@@ -18,7 +18,7 @@ import { insertWebstudioFragmentAt } from "~/shared/instance-utils";
 import { $selectedInstancePath } from "~/shared/awareness";
 import { InstanceIcon } from "~/builder/shared/instance-label";
 import { isTreeSatisfyingContentModel } from "~/shared/content-model";
-import { closeCommandPanel } from "../command-state";
+import { closeCommandPanel, $isCommandPanelOpen } from "../command-state";
 import type { BaseOption } from "../shared/types";
 
 export type TagOption = BaseOption & {
@@ -27,9 +27,18 @@ export type TagOption = BaseOption & {
 };
 
 export const $tagOptions = computed(
-  [$selectedInstancePath, $instances, $props, $registeredComponentMetas],
-  (instancePath, instances, props, metas) => {
+  [
+    $isCommandPanelOpen,
+    $selectedInstancePath,
+    $instances,
+    $props,
+    $registeredComponentMetas,
+  ],
+  (isOpen, instancePath, instances, props, metas) => {
     const tagOptions: TagOption[] = [];
+    if (!isOpen) {
+      return tagOptions;
+    }
     if (instancePath === undefined) {
       return tagOptions;
     }
@@ -72,8 +81,10 @@ export const TagsGroup = ({ options }: { options: TagOption[] }) => {
   return (
     <CommandGroup
       name="tag"
-      heading={<CommandGroupHeading>Tags</CommandGroupHeading>}
-      actions={["add"]}
+      heading={
+        <CommandGroupHeading>Tags ({options.length})</CommandGroupHeading>
+      }
+      actions={[{ name: "add", label: "Add" }]}
     >
       {options.map(({ tag }) => {
         return (
@@ -108,7 +119,7 @@ export const TagsGroup = ({ options }: { options: TagOption[] }) => {
               <CommandIcon>
                 <InstanceIcon instance={{ component: elementComponent, tag }} />
               </CommandIcon>
-              <Text variant="labelsSentenceCase">{`<${tag}>`}</Text>
+              <Text>{`<${tag}>`}</Text>
             </Flex>
           </CommandItem>
         );
