@@ -1011,7 +1011,7 @@ const ExportContent = (props: { projectId: Project["id"] }) => {
       <Grid columns={1} gap={2}>
         <div />
         <Grid columns={2} gap={2} align={"center"}>
-          <Text color="main" variant="labelsTitleCase">
+          <Text color="main" variant="labels">
             Destination
           </Text>
 
@@ -1065,7 +1065,7 @@ const ExportContent = (props: { projectId: Project["id"] }) => {
             <Separator css={{ alignSelf: "unset" }} />
           </Grid>
           <Grid columns={1} gap={1}>
-            <Text color="main" variant="labelsTitleCase">
+            <Text color="main" variant="labels">
               Step 1
             </Text>
             <Text color="subtle">
@@ -1095,7 +1095,7 @@ const ExportContent = (props: { projectId: Project["id"] }) => {
 
           <Grid columns={1} gap={2}>
             <Grid columns={1} gap={1}>
-              <Text color="main" variant="labelsTitleCase">
+              <Text color="main" variant="labels">
                 Step 2
               </Text>
               <Text color="subtle">
@@ -1120,7 +1120,7 @@ const ExportContent = (props: { projectId: Project["id"] }) => {
 
           <Grid columns={1} gap={2}>
             <Grid columns={1} gap={1}>
-              <Text color="main" variant="labelsTitleCase">
+              <Text color="main" variant="labels">
                 Step 3
               </Text>
               <Text color="subtle">
