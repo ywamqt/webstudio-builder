@@ -1,5 +1,5 @@
 import type { TrpcInterfaceClient } from "../shared/shared-router";
-import type { Client } from "@webstudio-is/postrest/index.server";
+import type { Client } from "@webstudio-is/postgrest/index.server";
 
 /**
  * All necessary parameters for Authorization
@@ -60,29 +60,24 @@ type DeploymentContext = {
     BUILDER_ORIGIN: string;
     GITHUB_REF_NAME: string;
     GITHUB_SHA: string | undefined;
+    PUBLISHER_HOST: string;
   };
 };
 
 type UserPlanFeatures = {
-  allowShareAdminLinks: boolean;
+  allowAdditionalPermissions: boolean;
   allowDynamicData: boolean;
+  allowContentMode: boolean;
+  allowStagingPublish: boolean;
   maxContactEmails: number;
   maxDomainsAllowedPerUser: number;
   maxPublishesAllowedPerUser: number;
-  hasSubscription: boolean;
-} & (
-  | {
-      hasProPlan: true;
-      planName: string;
-    }
-  | { hasProPlan: false }
-);
-
-// No strings except planName - no secrets
-({}) as Omit<UserPlanFeatures, "planName"> satisfies Record<
-  string,
-  boolean | number
->;
+  /** All user purchases (subscriptions and LTDs). subscriptionId present only for recurring subscriptions */
+  purchases: Array<{
+    planName: string;
+    subscriptionId?: string;
+  }>;
+};
 
 type TrpcCache = {
   setMaxAge: (path: string, value: number) => void;

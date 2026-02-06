@@ -29,9 +29,9 @@ const ProfileButton = forwardRef<
   {
     name: string;
     image?: string;
-    badge?: string;
+    hasPurchases?: boolean;
   }
->(({ image, name, badge, ...rest }, forwardedRef) => {
+>(({ image, name, hasPurchases, ...rest }, forwardedRef) => {
   return (
     <Button
       color="ghost"
@@ -47,7 +47,7 @@ const ProfileButton = forwardRef<
         height: theme.spacing[13],
       }}
     >
-      {badge && <ProBadge>{badge}</ProBadge>}
+      {hasPurchases === false && <ProBadge>Free</ProBadge>}
     </Button>
   );
 });
@@ -61,40 +61,49 @@ export const ProfileMenu = ({
 }) => {
   const navigate = useNavigate();
   const nameOrEmail = user.username ?? user.email ?? defaultUserName;
+  const hasPaidPlan = userPlanFeatures.purchases.length > 0;
+  const subscriptions = userPlanFeatures.purchases.filter((purchase) =>
+    Boolean(purchase.subscriptionId)
+  );
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <ProfileButton
           image={user.image || undefined}
           name={nameOrEmail}
-          badge={
-            userPlanFeatures.hasProPlan ? userPlanFeatures.planName : undefined
-          }
+          hasPurchases={hasPaidPlan}
         />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      <DropdownMenuContent align="start" width="regular">
         <DropdownMenuLabel>
           {user.username ?? defaultUserName}
           <Text>{user.email}</Text>
         </DropdownMenuLabel>
-        {userPlanFeatures.hasSubscription && (
-          <DropdownMenuItem
-            onSelect={() => navigate(userPlanSubscriptionPath())}
-          >
-            Manage Subscription
-          </DropdownMenuItem>
+        {subscriptions.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Purchases</DropdownMenuLabel>
+          </>
         )}
-        {userPlanFeatures.hasProPlan === false && (
+        {subscriptions.map((purchase) => (
+          <DropdownMenuItem
+            key={purchase.subscriptionId}
+            onSelect={() =>
+              navigate(userPlanSubscriptionPath(purchase.subscriptionId))
+            }
+          >
+            {purchase.planName}
+          </DropdownMenuItem>
+        ))}
+        {hasPaidPlan === false && (
           <DropdownMenuItem
             onSelect={() => {
               window.open("https://webstudio.is/pricing");
             }}
-            css={{
-              gap: theme.spacing[3],
-            }}
+            css={{ gap: theme.spacing[3] }}
           >
             <UpgradeIcon />
-            <div>Upgrade to Pro</div>
+            <div>Upgrade</div>
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />

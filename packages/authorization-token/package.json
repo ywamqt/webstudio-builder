@@ -6,10 +6,10 @@
   "homepage": "https://webstudio.is",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@webstudio-is/postrest": "workspace:*",
+    "@webstudio-is/postgrest": "workspace:*",
     "@webstudio-is/trpc-interface": "workspace:*",
     "zod": "^3.24.2"
   },

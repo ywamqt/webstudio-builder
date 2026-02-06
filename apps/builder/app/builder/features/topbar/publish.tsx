@@ -79,11 +79,7 @@ import {
 import { AddDomain } from "./add-domain";
 import { humanizeString } from "~/shared/string-utils";
 import { trpcClient, nativeClient } from "~/shared/trpc/trpc-client";
-import {
-  isPathnamePattern,
-  parseComponentName,
-  type Templates,
-} from "@webstudio-is/sdk";
+import { isPathnamePattern, type Templates } from "@webstudio-is/sdk";
 import { DomainCheckbox, domainToPublishName } from "./domain-checkbox";
 import { CopyToClipboard } from "~/shared/copy-to-clipboard";
 import { $openProjectSettings } from "~/shared/nano-states/project-settings";
@@ -110,6 +106,7 @@ const ChangeProjectDomain = ({
   const [domain, setDomain] = useState(project.domain);
   const [error, setError] = useState<string>();
   const [isUpdateInProgress, setIsUpdateInProgress] = useOptimistic(false);
+  const [isUnpublishing, setIsUnpublishing] = useOptimistic(false);
 
   const pageUrl = new URL(publishedOrigin);
   pageUrl.pathname = selectedPagePath;
@@ -152,6 +149,20 @@ const ChangeProjectDomain = ({
     });
   };
 
+  const handleUnpublish = async () => {
+    setIsUnpublishing(true);
+    const result = await nativeClient.domain.unpublish.mutate({
+      projectId: project.id,
+      domain: `${project.domain}.${publisherHost}`,
+    });
+    if (result.success === false) {
+      toast.error(result.message);
+      return;
+    }
+    await refresh();
+    toast.success(result.message);
+  };
+
   const { statusText, status } =
     project.latestBuildVirtual != null
       ? getPublishStatusAndText(project.latestBuildVirtual)
@@ -159,6 +170,9 @@ const ChangeProjectDomain = ({
           statusText: "Not published",
           status: "PENDING" as const,
         };
+
+  // Check if the wstd domain specifically is published (not just any custom domain)
+  const isPublished = project.latestBuildVirtual?.domain === project.domain;
 
   return (
     <CollapsibleDomainSection
@@ -209,15 +223,25 @@ const ChangeProjectDomain = ({
     >
       <Grid gap={2}>
         <Grid flow="column" align="center" gap={2}>
-          <Label htmlFor={id} css={{ width: theme.spacing[20] }}>
-            Domain:
-          </Label>
+          <Flex align="center" gap={1} css={{ width: theme.spacing[20] }}>
+            <Label htmlFor={id}>Domain:</Label>
+            <Tooltip
+              content="Domain can't be renamed once published. Unpublish to enable renaming."
+              variant="wrapped"
+            >
+              <InfoCircleIcon
+                tabIndex={0}
+                style={{ flexShrink: 0 }}
+                color={rawTheme.colors.foregroundSubtle}
+              />
+            </Tooltip>
+          </Flex>
           <InputField
             text="mono"
             id={id}
             placeholder="Domain"
             value={domain}
-            disabled={isUpdateInProgress}
+            disabled={isUpdateInProgress || isPublished}
             onChange={(event) => {
               setError(undefined);
               setDomain(event.target.value);
@@ -280,14 +304,26 @@ const ChangeProjectDomain = ({
             />
           </Grid>
         )}
+        {isPublished && (
+          <Tooltip content="Unpublish to enable domain renaming">
+            <Button
+              formAction={handleUnpublish}
+              color="destructive"
+              state={isUnpublishing ? "pending" : undefined}
+              css={{ width: "100%" }}
+            >
+              Unpublish
+            </Button>
+          </Tooltip>
+        )}
       </Grid>
     </CollapsibleDomainSection>
   );
 };
 
-const $usedProFeatures = computed(
-  [$pages, $dataSources, $instances, $project],
-  (pages, dataSources, instances, project) => {
+const $restrictedFeatures = computed(
+  [$pages, $dataSources, $instances, $userPlanFeatures],
+  (pages, dataSources, instances, userPlanFeatures) => {
     const features = new Map<
       string,
       | undefined
@@ -297,48 +333,37 @@ const $usedProFeatures = computed(
       return features;
     }
     // specified emails for default webhook form
-    if ((pages?.meta?.contactEmail ?? "").trim()) {
+    if (
+      userPlanFeatures.maxContactEmails === 0 &&
+      (pages?.meta?.contactEmail ?? "").trim()
+    ) {
       features.set("Custom contact email", undefined);
     }
-    // pages with dynamic paths
-    for (const page of [pages.homePage, ...pages.pages]) {
-      const awareness = {
-        pageId: page.id,
-        instanceSelector: [page.rootInstanceId],
-      };
-      // allow catch all for 404 pages on free plan
-      if (isPathnamePattern(page.path) && page.path !== "/*") {
-        features.set("Dynamic path", { awareness, view: "pageSettings" });
+    if (!userPlanFeatures.allowDynamicData) {
+      // pages with dynamic paths
+      for (const page of [pages.homePage, ...pages.pages]) {
+        const awareness = {
+          pageId: page.id,
+          instanceSelector: [page.rootInstanceId],
+        };
+        // allow catch all for 404 pages on free plan
+        if (isPathnamePattern(page.path) && page.path !== "/*") {
+          features.set("Dynamic path", { awareness, view: "pageSettings" });
+        }
+        if (page.meta.redirect && page.meta.redirect !== `""`) {
+          features.set("Redirect", { awareness, view: "pageSettings" });
+        }
       }
-      if (page.meta.redirect && page.meta.redirect !== `""`) {
-        features.set("Redirect", { awareness, view: "pageSettings" });
-      }
-    }
-    // has resource variables
-    for (const dataSource of dataSources.values()) {
-      if (dataSource.type === "resource") {
-        const instanceId = dataSource.scopeInstanceId ?? "";
-        features.set("Resource variable", {
-          awareness: findAwarenessByInstanceId(pages, instances, instanceId),
-        });
-      }
-    }
-
-    // Instances with animations.
-    for (const instance of instances.values()) {
-      const [namespace] = parseComponentName(instance.component);
-      if (namespace === "@webstudio-is/sdk-components-animation") {
-        features.set("Animation component", {
-          awareness: findAwarenessByInstanceId(pages, instances, instance.id),
-        });
+      // has resource variables
+      for (const dataSource of dataSources.values()) {
+        if (dataSource.type === "resource") {
+          const instanceId = dataSource.scopeInstanceId ?? "";
+          features.set("Resource variable", {
+            awareness: findAwarenessByInstanceId(pages, instances, instanceId),
+          });
+        }
       }
     }
-
-    // Custom domains
-    if (project && project.domainsVirtual.length > 0) {
-      features.set("Custom domain", undefined);
-    }
-
     return features;
   }
 );
@@ -389,11 +414,13 @@ const Publish = ({
   const [isPublishing, setIsPublishing] = useOptimistic(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [hasSelectedDomains, setHasSelectedDomains] = useState(false);
-  const hasProPlan = useStore($userPlanFeatures).hasProPlan;
+  const userPlanFeatures = useStore($userPlanFeatures);
+  const hasPaidPlan = userPlanFeatures.purchases.length > 0;
+  const { allowStagingPublish } = userPlanFeatures;
   const countdown = usePublishCountdown(isPublishing);
 
   useEffect(() => {
-    if (hasProPlan === false) {
+    if (allowStagingPublish === false) {
       setHasSelectedDomains(true);
       return;
     }
@@ -425,13 +452,13 @@ const Publish = ({
     return () => {
       observer.disconnect();
     };
-  }, [hasProPlan]);
+  }, [allowStagingPublish]);
 
   const handlePublish = async (formData: FormData) => {
     setPublishError(undefined);
     setIsPublishing(true);
 
-    const domains = hasProPlan
+    const domains = allowStagingPublish
       ? formData
           .getAll(domainToPublishName)
           .map((domainEntry) => domainEntry.toString())
@@ -518,7 +545,7 @@ const Publish = ({
         toast.success(
           <>
             The project has been successfully published.{" "}
-            {hasProPlan === false && (
+            {hasPaidPlan === false && (
               <div>
                 On the free plan, you have {timesLeft} out of{" "}
                 {maxPublishesAllowedPerUser} daily publications remaining. The
@@ -727,30 +754,17 @@ const PublishStatic = ({
 
 const useCanAddDomain = () => {
   const { load, data } = trpcClient.domain.countTotalDomains.useQuery();
-  const { maxDomainsAllowedPerUser, hasProPlan } = useStore($userPlanFeatures);
+  const { maxDomainsAllowedPerUser } = useStore($userPlanFeatures);
   const project = useStore($project);
-
   const activeDomainsCount = project?.domainsVirtual.filter(
     (domain) => domain.status === "ACTIVE" && domain.verified
   ).length;
-
   useEffect(() => {
     load();
   }, [load, activeDomainsCount]);
-
-  if (hasProPlan) {
-    return { canAddDomain: true, maxDomainsAllowedPerUser };
-  }
-
-  if (data?.success === false) {
-    return { canAddDomain: false, maxDomainsAllowedPerUser };
-  }
-
-  const withinFreeLimit = data
+  const canAddDomain = data
     ? data.success && data.data < maxDomainsAllowedPerUser
     : true;
-  const canAddDomain = hasProPlan || withinFreeLimit;
-
   return { canAddDomain, maxDomainsAllowedPerUser };
 };
 
@@ -790,7 +804,7 @@ const buttonLinkClass = css({
 }).toString();
 
 const UpgradeBanner = () => {
-  const usedProFeatures = useStore($usedProFeatures);
+  const restrictedFeatures = useStore($restrictedFeatures);
   const { canAddDomain } = useCanAddDomain();
   const { userPublishCount, maxPublishesAllowedPerUser } =
     useUserPublishCount();
@@ -815,7 +829,7 @@ const UpgradeBanner = () => {
     );
   }
 
-  if (usedProFeatures.size > 0) {
+  if (restrictedFeatures.size > 0) {
     return (
       <PanelBanner>
         <img
@@ -826,7 +840,7 @@ const UpgradeBanner = () => {
         />
         <Text variant="regularBold">Following Pro features are used:</Text>
         <Text as="ul" color="destructive" css={{ paddingLeft: "1em" }}>
-          {Array.from(usedProFeatures).map(
+          {Array.from(restrictedFeatures).map(
             ([message, { awareness, view, info } = {}], index) => (
               <li key={index}>
                 <Flex align="center" gap="1">
@@ -899,13 +913,10 @@ const Content = (props: {
   projectId: Project["id"];
   onExportClick: () => void;
 }) => {
-  const usedProFeatures = useStore($usedProFeatures);
-  const { hasProPlan } = useStore($userPlanFeatures);
+  const restrictedFeatures = useStore($restrictedFeatures);
   const [newDomains, setNewDomains] = useState(new Set<string>());
 
   const project = useStore($project);
-
-  const hasCustomDomains = (project?.domainsVirtual.length ?? 0) > 0;
 
   if (project == null) {
     throw new Error("Project not found");
@@ -947,15 +958,13 @@ const Content = (props: {
           }}
           onExportClick={props.onExportClick}
         />
-        {hasProPlan === false && <UpgradeBanner />}
+        <UpgradeBanner />
         <Publish
           project={project}
           refresh={refreshProject}
           timesLeft={maxPublishesAllowedPerUser - userPublishCount}
           disabled={
-            (usedProFeatures.size > 0 &&
-              hasProPlan === false &&
-              hasCustomDomains) ||
+            restrictedFeatures.size > 0 ||
             userPublishCount >= maxPublishesAllowedPerUser
           }
         />

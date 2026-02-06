@@ -1,7 +1,7 @@
 {
   "type": "module",
   "scripts": {
-    "typecheck": "tsc",
+    "typecheck": "tsgo --noEmit",
     "build": "react-router build",
     "dev": "react-router dev",
     "cli": "NODE_OPTIONS='--conditions=webstudio --import=tsx' webstudio",
@@ -38,7 +38,7 @@
     "webstudio": "workspace:*"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22"
   },
   "name": "webstudio-features",
   "version": "0.0.1",

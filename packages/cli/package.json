@@ -22,13 +22,13 @@
     "!*.{test,stories}.*"
   ],
   "scripts": {
-    "typecheck": "tsc",
+    "typecheck": "tsgo --noEmit",
     "build": "rm -rf lib && vite build",
     "test": "vitest run"
   },
   "license": "AGPL-3.0-or-later",
   "engines": {
-    "node": ">=20.12"
+    "node": ">=22"
   },
   "dependencies": {
     "@clack/prompts": "^0.10.0",

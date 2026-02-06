@@ -15,7 +15,7 @@ import type { TokenPermissions } from "@webstudio-is/authorization-token";
 import type { AssetType } from "@webstudio-is/asset-uploader";
 import type { DragStartPayload } from "~/canvas/shared/use-drag-drop";
 import { type InstanceSelector } from "../tree-utils";
-import type { ChildrenOrientation } from "node_modules/@webstudio-is/design-system/src/components/primitives/dnd/geometry-utils";
+import type { ChildrenOrientation } from "@webstudio-is/design-system";
 import { $awareness, $selectedInstance } from "../awareness";
 import type { UserPlanFeatures } from "../db/user-plan-features.server";
 import {
@@ -297,13 +297,14 @@ export const $hoveredInstanceSelector = atom<undefined | InstanceSelector>(
 
 // keep in sync with user-plan-features.server
 export const $userPlanFeatures = atom<UserPlanFeatures>({
-  allowShareAdminLinks: false,
+  allowAdditionalPermissions: false,
   allowDynamicData: false,
+  allowContentMode: false,
+  allowStagingPublish: false,
   maxContactEmails: 0,
   maxDomainsAllowedPerUser: 0,
   maxPublishesAllowedPerUser: 1,
-  hasSubscription: false,
-  hasProPlan: false,
+  purchases: [],
 });
 
 const builderModes = ["design", "preview", "content"] as const;
@@ -346,7 +347,7 @@ export const $isContentModeAllowed = computed(
     }
 
     // In shared projects, only Pro users can share editable links, so check the plan features of the user who shared the link
-    return userPlanFeatures.hasProPlan === true;
+    return userPlanFeatures.allowContentMode === true;
   }
 );
 
