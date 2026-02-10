@@ -6,3 +6,4 @@ cd .devcontainer && docker compose up -d
 cd .. && pnpm migrations migrate
 service wstd restart
 echo "\nWSTD Updated!";
+#hi
