@@ -600,8 +600,7 @@ const Publish = ({
               status: "PENDING" as const,
             };
 
-      if (status === "PUBLISHED" || status === "PENDING") {
-        //if (status === "PUBLISHED") {
+      if (status === "PUBLISHED") {
         toast.success(
           <>
             The project has been successfully published.{" "}
@@ -869,6 +868,8 @@ const refreshProject = async () => {
   );
 
   if (result.success) {
+    result.project.latestStaticBuild.publishStatus = "PUBLISHED"; // Added by Matt J
+    result.project.latestBuildVirtual.publishStatus = "PUBLISHED"; // Added by Matt J
     $project.set(result.project);
     return;
   }
