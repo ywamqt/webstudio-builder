@@ -98,11 +98,6 @@ export default defineConfig(({ mode }) => {
       // Needed for SSL
       proxy: {},
 
-      hmr: {
-        host: "wstd.servr.top",
-        port: 3001,
-      },
-
       https: {
         key: readFileSync("../../https/privkey.pem"),
         cert: readFileSync("../../https/fullchain.pem"),
