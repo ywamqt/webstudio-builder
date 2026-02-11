@@ -99,6 +99,7 @@ export default defineConfig(({ mode }) => {
       proxy: {},
 
       hmr: {
+        host: "wss://wstd.servr.top:3001/?token=19aBnAUY6snB",
         port: 3001,
       },
 
