@@ -99,7 +99,7 @@ export default defineConfig(({ mode }) => {
       proxy: {},
 
       hmr: {
-        clientPort: 3001,
+        port: 3001,
       },
 
       https: {
