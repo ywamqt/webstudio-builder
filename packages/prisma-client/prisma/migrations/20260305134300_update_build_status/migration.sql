@@ -1,4 +1,4 @@
-/* --- Migration Added by m8jj --- */
+-- Migration Added by m8jj
 DROP FUNCTION IF EXISTS update_build_status;
 CREATE FUNCTION update_build_status(
   build_id text,
