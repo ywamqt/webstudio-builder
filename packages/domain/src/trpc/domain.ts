@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import * as projectApi from "@webstudio-is/project/index.server";
 import {
   createProductionBuild,
+  updateBuildStatus,
   unpublishBuild,
 } from "@webstudio-is/project-build/index.server";
 import {
@@ -147,6 +148,21 @@ export const domainRouter = router({
         if (input.destination === "static" && result.success) {
           return { success: true as const, name };
         }
+
+        /* --- Added by m8jj --- */
+        const buildStatusUpdated = await updateBuildStatus(
+          {
+            buildId: build.id,
+            publishStatus: result.success === true ? "PUBLISHED" : "FAILED",
+          },
+          ctx
+        );
+
+        if (buildStatusUpdated === false) {
+          result.success = false;
+          result.error = "STATUS_UPDATE_FAILED";
+        }
+        /* ------ */
 
         return result;
       } catch (error) {
