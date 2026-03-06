@@ -789,8 +789,6 @@ const refreshProject = async () => {
   );
 
   if (result.success) {
-    result.project.latestStaticBuild.publishStatus = "PUBLISHED"; // Added by Matt J
-    result.project.latestBuildVirtual.publishStatus = "PUBLISHED"; // Added by Matt J
     $project.set(result.project);
     return;
   }
