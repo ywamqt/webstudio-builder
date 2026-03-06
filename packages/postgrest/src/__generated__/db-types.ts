@@ -923,7 +923,7 @@ export type Database = {
         Returns: string;
       };
       update_build_status: {
-        Args: { build_id: string; publish_status: string };
+        Args: { build_id: string; publish_status: Database["public"]["Enums"]["PublishStatus"] };
         Returns: undefined;
       };
       database_cleanup: {
