@@ -1,7 +1,7 @@
 -- Migration Added by m8jj
 CREATE OR REPLACE FUNCTION update_build_status(
   build_id text,
-  publish_status text
+  publish_status "PublishStatus"
 ) RETURNS void AS $$
 BEGIN
   UPDATE "Build"
