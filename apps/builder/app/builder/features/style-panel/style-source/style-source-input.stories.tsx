@@ -1,11 +1,15 @@
 import { nanoid } from "nanoid";
-import type { StoryFn } from "@storybook/react";
 import { useState } from "react";
-import { type ItemSelector, type ItemSource, StyleSourceInput } from ".";
+import { Flex, StorySection, Text, theme } from "@webstudio-is/design-system";
+import {
+  type ItemSelector,
+  type ItemSource,
+  StyleSourceInput as StyleSourceInputComponent,
+} from ".";
 
 export default {
-  title: "Style Panel/Style Source Input",
-  component: StyleSourceInput,
+  title: "Style panel/Style Source Input",
+  component: StyleSourceInputComponent,
 };
 
 type Item = {
@@ -64,62 +68,7 @@ const removeItem = (
   setValue(value.filter((item) => item.id !== itemIdToRemove));
 };
 
-export const Basic: StoryFn<typeof StyleSourceInput> = () => {
-  const [value, setValue] = useState([localItem, ...getItems()]);
-  return (
-    <StyleSourceInput
-      inputRef={() => {}}
-      css={{ width: 300 }}
-      items={getItems()}
-      value={value}
-      selectedItemSelector={{ styleSourceId: localItem.id }}
-      onCreateItem={(label) => {
-        createItem(label, value, setValue);
-      }}
-      onSelectAutocompleteItem={(item) => {
-        setValue([...value, item]);
-      }}
-      onDetachItem={(itemId) => {
-        removeItem(itemId, value, setValue);
-      }}
-      onSort={setValue}
-    />
-  );
-};
-
-export const WithTruncatedItem: StoryFn<typeof StyleSourceInput> = () => {
-  const [value, setValue] = useState<Array<Item>>([
-    {
-      id: nanoid(),
-      label:
-        "Local Something Something Something Something Something Something Something Something Something Something Something",
-      source: "token",
-      disabled: false,
-      states: [],
-    },
-  ]);
-  return (
-    <StyleSourceInput
-      inputRef={() => {}}
-      css={{ width: 300 }}
-      items={getItems()}
-      value={value}
-      selectedItemSelector={{ styleSourceId: value[0].id }}
-      onCreateItem={(label) => {
-        createItem(label, value, setValue);
-      }}
-      onSelectAutocompleteItem={(item) => {
-        setValue([...value, item]);
-      }}
-      onDetachItem={(itemToRemove) => {
-        removeItem(itemToRemove, value, setValue);
-      }}
-      onSort={setValue}
-    />
-  );
-};
-
-export const Complete: StoryFn<typeof StyleSourceInput> = () => {
+export const StyleSourceInput = () => {
   const [value, setValue] = useState<Array<Item>>([
     localItem,
     ...getItems(),
@@ -136,56 +85,90 @@ export const Complete: StoryFn<typeof StyleSourceInput> = () => {
   >({ styleSourceId: localItem.id });
   const [editingItemId, setEditingItemId] = useState<undefined | Item["id"]>();
 
+  const truncatedId = nanoid();
+  const [truncated, setTruncated] = useState<Array<Item>>([
+    {
+      id: truncatedId,
+      label:
+        "Local Something Something Something Something Something Something Something",
+      source: "token",
+      disabled: false,
+      states: [],
+    },
+  ]);
+
   return (
-    <StyleSourceInput
-      inputRef={() => {}}
-      css={{ width: 300 }}
-      items={getItems()}
-      value={value}
-      selectedItemSelector={selectedItemSelector}
-      editingItemId={editingItemId}
-      onSelectItem={setSelectedItemSelector}
-      onEditItem={setEditingItemId}
-      onCreateItem={(label) => {
-        createItem(label, value, setValue);
-      }}
-      onSelectAutocompleteItem={(item) => {
-        setValue([...value, item]);
-      }}
-      onDetachItem={(itemToRemove) => {
-        removeItem(itemToRemove, value, setValue);
-      }}
-      onChangeItem={(changedItem) => {
-        setValue(
-          value.map((item) => {
-            if (item.id === changedItem.id) {
-              return changedItem;
-            }
-            return item;
-          })
-        );
-      }}
-      onDisableItem={(itemIdToDisable) => {
-        setValue(
-          value.map((item) => {
-            if (item.id === itemIdToDisable) {
-              return { ...item, disabled: true };
-            }
-            return item;
-          })
-        );
-      }}
-      onEnableItem={(itemIdToEnable) => {
-        setValue(
-          value.map((item) => {
-            if (item.id === itemIdToEnable) {
-              return { ...item, disabled: false };
-            }
-            return item;
-          })
-        );
-      }}
-      onSort={setValue}
-    />
+    <StorySection title="Style Source Input">
+      <Flex
+        direction="column"
+        gap="5"
+        css={{ maxWidth: theme.sizes.sidebarWidth }}
+      >
+        <Flex direction="column" gap="1">
+          <Text variant="labels">Complete (with editing & disabling)</Text>
+          <StyleSourceInputComponent
+            inputRef={() => {}}
+            css={{ width: theme.sizes.sidebarWidth }}
+            items={getItems()}
+            value={value}
+            selectedItemSelector={selectedItemSelector}
+            editingItemId={editingItemId}
+            onSelectItem={setSelectedItemSelector}
+            onEditItem={setEditingItemId}
+            onCreateItem={(label) => {
+              createItem(label, value, setValue);
+            }}
+            onSelectAutocompleteItem={(item) => {
+              setValue([...value, item]);
+            }}
+            onDetachItem={(itemToRemove) => {
+              removeItem(itemToRemove, value, setValue);
+            }}
+            onChangeItem={(changedItem) => {
+              setValue(
+                value.map((item) =>
+                  item.id === changedItem.id ? changedItem : item
+                )
+              );
+            }}
+            onDisableItem={(id) => {
+              setValue(
+                value.map((item) =>
+                  item.id === id ? { ...item, disabled: true } : item
+                )
+              );
+            }}
+            onEnableItem={(id) => {
+              setValue(
+                value.map((item) =>
+                  item.id === id ? { ...item, disabled: false } : item
+                )
+              );
+            }}
+            onSort={setValue}
+          />
+        </Flex>
+        <Flex direction="column" gap="1">
+          <Text variant="labels">Truncated item</Text>
+          <StyleSourceInputComponent
+            inputRef={() => {}}
+            css={{ width: theme.sizes.sidebarWidth }}
+            items={getItems()}
+            value={truncated}
+            selectedItemSelector={{ styleSourceId: truncatedId }}
+            onCreateItem={(label) => {
+              createItem(label, truncated, setTruncated);
+            }}
+            onSelectAutocompleteItem={(item) => {
+              setTruncated([...truncated, item]);
+            }}
+            onDetachItem={(id) => {
+              removeItem(id, truncated, setTruncated);
+            }}
+            onSort={setTruncated}
+          />
+        </Flex>
+      </Flex>
+    </StorySection>
   );
 };

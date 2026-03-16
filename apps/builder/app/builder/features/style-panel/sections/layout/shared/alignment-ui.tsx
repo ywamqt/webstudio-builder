@@ -2,27 +2,86 @@ import { Box, Flex, Grid, IconButton } from "@webstudio-is/design-system";
 import { DotIcon } from "@webstudio-is/icons";
 import { theme } from "@webstudio-is/design-system";
 
-// Sometimes we need to hide a dot that ends up at an end
-// of a line and visually extends it
-const shouldHideDot = ({
+// Hide dots where indicator bars overlap to avoid sub-pixel artifacts.
+// Bars have a cross-axis position (from alignItems) and main-axis position
+// (from justifyContent). A dot is hidden when both axes match.
+//
+// x always maps to justify-content (main-axis position: 0=start, 1=center, 2=end)
+// y always maps to align-items (cross-axis position: 0=start, 1=center, 2=end)
+// The visual transposition for column direction is handled by the CSS grid swap.
+//
+// Cross-axis (y): CSS align-items controls bar position in the cross direction.
+//   stretch/normal → bars span full cross-axis (CSS stretches flex items)
+//   itemStretchWidth (column) / itemStretchHeight (row) → same visual effect
+//   start/baseline/center/end → bars sit at one specific position
+//
+// Main-axis (x): CSS justify-content controls bar distribution.
+//   normal/start → bars clustered at position 0
+//   center → bars at position 1
+//   end → bars at position 2
+//   space-between → bars at positions 0, 1, 2
+//   space-around → bars between positions, no dot overlap
+export const shouldHideDot = ({
   x,
   y,
   justifyContent,
   alignItems,
+  isColumnDirection,
+  itemStretchWidth,
+  itemStretchHeight,
 }: {
   x: number;
   y: number;
   justifyContent: string;
   alignItems: string;
+  isColumnDirection: boolean;
+  itemStretchWidth: boolean;
+  itemStretchHeight: boolean;
 }) => {
-  if (justifyContent === "space-between") {
-    if (alignItems === "start" || alignItems === "baseline") {
-      return x === 2 && y === 0;
-    }
-    if (alignItems === "end") {
-      return x === 2 && y === 2;
+  // Check if the dot's cross-axis (y) position overlaps with bars.
+  // CSS align-items: stretch/normal makes bars span full cross-axis.
+  // Explicit itemStretch* does the same via min-width/height: 100%.
+  const isStretched =
+    alignItems === "stretch" ||
+    alignItems === "normal" ||
+    (isColumnDirection ? itemStretchWidth : itemStretchHeight);
+
+  let crossMatch = false;
+  if (isStretched) {
+    crossMatch = true;
+  } else {
+    switch (alignItems) {
+      case "start":
+      case "baseline":
+        crossMatch = y === 0;
+        break;
+      case "center":
+        crossMatch = y === 1;
+        break;
+      case "end":
+        crossMatch = y === 2;
+        break;
     }
   }
+
+  if (!crossMatch) {
+    return false;
+  }
+
+  // Check if the dot's main-axis (x) position overlaps with bars.
+  switch (justifyContent) {
+    case "normal":
+    case "start":
+      return x === 0;
+    case "center":
+      return x === 1;
+    case "end":
+      return x === 2;
+    case "space-between":
+      return true;
+    // space-around: bars sit between dot positions, no overlap
+  }
+
   return false;
 };
 
@@ -106,16 +165,24 @@ export const AlignmentUi = ({
               }}
               onClick={() => onSelect({ x, y })}
             >
-              {shouldHideDot({
-                x,
-                y,
-                justifyContent,
-                alignItems,
-              }) === false && (
-                <Box css={{ size: 16 }}>
-                  <DotIcon size={8} />
-                </Box>
-              )}
+              <Box
+                css={{
+                  size: 16,
+                  visibility: shouldHideDot({
+                    x,
+                    y,
+                    justifyContent,
+                    alignItems,
+                    isColumnDirection,
+                    itemStretchWidth,
+                    itemStretchHeight,
+                  })
+                    ? "hidden"
+                    : "visible",
+                }}
+              >
+                <DotIcon size={8} />
+              </Box>
             </IconButton>
           </Flex>
         );

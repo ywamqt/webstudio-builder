@@ -1,7 +1,13 @@
 import { useState } from "react";
 import type { PropMeta, Instance, Prop, Asset, Page } from "@webstudio-is/sdk";
-import { textVariants } from "@webstudio-is/design-system";
-import { PropsSection } from "./props-section";
+import {
+  Box,
+  Flex,
+  StorySection,
+  textVariants,
+  theme,
+} from "@webstudio-is/design-system";
+import { PropsSection as PropsSectionComponent } from "./props-section";
 import { usePropsLogic } from "./use-props-logic";
 import {
   $assets,
@@ -365,7 +371,7 @@ const startingProps: Prop[] = [
   },
 ];
 
-export const Story = () => {
+export const PropsSection = () => {
   const [props, setProps] = useState(startingProps);
 
   const handleUpdate = (prop: Prop) => {
@@ -384,32 +390,38 @@ export const Story = () => {
   });
 
   return (
-    <div style={{ display: "flex", gap: 12 }}>
-      <div style={{ width: 240, border: "dashed 3px #e3e3e3" }}>
-        <PropsSection
-          instanceId={instanceId}
-          propsLogic={logic}
-          propValues={new Map()}
-          component="Button"
-          selectedInstanceKey={instanceId}
-        />
-      </div>
-      <pre style={textVariants.mono}>
-        {props
-          .map(
-            ({ name, value, type }) =>
-              `${name}: ${type} = ${JSON.stringify(value)}`
-          )
-          .join("\n")}
-      </pre>
-    </div>
+    <StorySection title="Props Section">
+      <Flex gap="3">
+        <Box
+          css={{
+            width: theme.sizes.sidebarWidth,
+            border: "dashed 3px #e3e3e3",
+          }}
+        >
+          <PropsSectionComponent
+            instanceId={instanceId}
+            propsLogic={logic}
+            propValues={new Map()}
+            component="Button"
+            selectedInstanceKey={instanceId}
+          />
+        </Box>
+        <pre style={textVariants.mono}>
+          {props
+            .map(
+              ({ name, value, type }) =>
+                `${name}: ${type} = ${JSON.stringify(value)}`
+            )
+            .join("\n")}
+        </pre>
+      </Flex>
+    </StorySection>
   );
 };
 
-Story.storyName = "props-panel";
 export default {
-  title: "Settings Panel/Props Section",
-  component: Story,
+  title: "Settings panel/Props Section",
+  component: PropsSection,
   parameters: {
     lostpixel: {
       // this is to fix cutting off the after scroll area in the screenshot
