@@ -298,7 +298,7 @@ const DomainItem = ({
     startTransition(async () => {
       await handleUpdateStatus();
     });
-  }, [status, handleVerify, handleUpdateStatus, isStatusLoading]);
+  }, [status, isStatusLoading]);
 
   const domainStatus = getStatus(projectDomain);
 
@@ -336,6 +336,7 @@ const DomainItem = ({
           }
           domain={projectDomain.domain}
           disabled={domainStatus !== "VERIFIED_ACTIVE"}
+          isCustomDomain
         />
       }
       initiallyOpen={initiallyOpen}
