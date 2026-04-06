@@ -115,7 +115,7 @@ export const userPlanSubscriptionPath = (subscriptionId?: string) => {
     urlSearchParams.set("subscription", subscriptionId);
   }
 
-  return `/n8n/billing_portal/sessions?${urlSearchParams.toString()}`;
+  return `/builder-payments/billing-portal/sessions?${urlSearchParams.toString()}`;
 };
 
 export const authCallbackPath = ({
