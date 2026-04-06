@@ -367,24 +367,3 @@ export const createProductionBuild = async (
     id: build.data,
   };
 };
-
-/* --- Added by m8jj --- */
-export const updateBuildStatus = async (
-  props: {
-    buildId: Build["id"];
-    publishStatus: "PENDING" | "FAILED" | "PUBLISHED";
-  },
-  context: AppContext
-) => {
-  const result = await context.postgrest.client.rpc("update_build_status", {
-    build_id: props.buildId,
-    publish_status: props.publishStatus,
-  });
-
-  if (result.error) {
-    throw result.error;
-  }
-
-  return true;
-};
-/* ------ */

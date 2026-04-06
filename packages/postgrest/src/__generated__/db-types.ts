@@ -922,10 +922,6 @@ export type Database = {
         Args: { deployment: string; project_id: string };
         Returns: string;
       };
-      update_build_status: {
-        Args: { build_id: string; publish_status: Database["public"]["Enums"]["PublishStatus"] };
-        Returns: undefined;
-      };
       database_cleanup: {
         Args: { from_date?: string; to_date?: string };
         Returns: undefined;

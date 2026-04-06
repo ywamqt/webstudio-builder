@@ -3,7 +3,6 @@ import { nanoid } from "nanoid";
 import * as projectApi from "@webstudio-is/project/index.server";
 import {
   createProductionBuild,
-  updateBuildStatus,
   unpublishBuild,
 } from "@webstudio-is/project-build/index.server";
 import {
