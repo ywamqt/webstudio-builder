@@ -150,18 +150,10 @@ export const domainRouter = router({
         }
 
         /* --- Added by m8jj --- */
-        const buildStatusUpdated = await updateBuildStatus(
-          {
-            buildId: build.id,
-            publishStatus: result.success === true ? "PUBLISHED" : "FAILED",
-          },
-          ctx
-        );
-
-        if (buildStatusUpdated === false) {
-          result.success = false;
-          result.error = "STATUS_UPDATE_FAILED";
-        }
+        await ctx.postgrest.client
+            .from("Build")
+            .update({ publishStatus: result.success === true ? "PUBLISHED" : "FAILED" })
+            .eq("id", build.id);
         /* ------ */
 
         return result;
