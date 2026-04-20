@@ -2,7 +2,7 @@ FROM node:22-alpine AS dependencies-env
 COPY .npmrc package.json /app/
 WORKDIR /app
 RUN npm install --omit=dev
-
+#test
 FROM dependencies-env AS build-env
 COPY . /app/
 WORKDIR /app
