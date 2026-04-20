@@ -19,6 +19,7 @@ import {
   type RenameStyleSourceError,
   deleteStyleSource,
   DeleteStyleSourceDialog,
+  setStyleSourceLocked,
 } from "~/builder/shared/style-source-actions";
 import {
   $registeredComponentMetas,
@@ -316,6 +317,9 @@ const getComponentStates = ({
     usedSelectors.add(selectedStyleState);
   }
 
+  const componentStateSelectors = new Set(
+    componentStates.map((s) => s.selector)
+  );
   const allStateSelectors = new Set([...allStates, ...usedSelectors]);
 
   const toConfig = (selector: string): SelectorConfig => ({
@@ -326,7 +330,9 @@ const getComponentStates = ({
   });
 
   const states = Array.from(allStateSelectors)
-    .filter((state) => !isPseudoElement(state))
+    .filter(
+      (state) => !isPseudoElement(state) && !componentStateSelectors.has(state)
+    )
     .map(toConfig);
 
   const pseudoElements = Array.from(allStateSelectors)
@@ -382,6 +388,7 @@ type StyleSourceInputItem = {
   label: string;
   disabled: boolean;
   source: ItemSource;
+  locked: boolean;
   states: string[];
 };
 
@@ -394,6 +401,7 @@ const convertToInputItem = (
     label: styleSource.type === "local" ? "Local" : styleSource.name,
     disabled: false,
     source: styleSource.type,
+    locked: styleSource.type === "token" && styleSource.locked === true,
     states,
   };
 };
@@ -485,6 +493,9 @@ export const StyleSourcesSection = () => {
             setTokenToDelete(token);
           }
         }}
+        onToggleLockItem={(id, locked) => {
+          setStyleSourceLocked(id, locked);
+        }}
         onSort={(items) => {
           reorderStyleSources(items.map((item) => item.id));
         }}
@@ -527,4 +538,4 @@ export const StyleSourcesSection = () => {
   );
 };
 
-export const __testing__ = { getComponentStates };
+export const __testing__ = { duplicateStyleSource, getComponentStates };

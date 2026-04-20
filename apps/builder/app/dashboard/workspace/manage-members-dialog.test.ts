@@ -179,9 +179,7 @@ describe("computeAvailableSeats", () => {
     ).toBe(-2);
   });
 
-  test("confirmedMaxSeats overrides stale server maxSeats when higher", () => {
-    // Scenario: user confirmed paying for 2 extra seats but webhook hasn't fired.
-    // Server still returns maxSeats=3, but confirmedMaxSeats=5.
+  test("maxSeatsBoost increases available seats optimistically", () => {
     const members = [
       {
         userId: "u1",
@@ -191,35 +189,33 @@ describe("computeAvailableSeats", () => {
         username: "",
       },
     ];
-    const pendingInvites = [
-      {
-        notificationId: "n1",
-        recipientId: "r1",
-        email: "b@example.com",
-        relation: "editors" as const,
-        createdAt: "",
-      },
-      {
-        notificationId: "n2",
-        recipientId: "r2",
-        email: "c@example.com",
-        relation: "editors" as const,
-        createdAt: "",
-      },
-    ];
-    // maxSeats=3 (stale), but 1 member + 2 pending = 3 occupied → would be 0 available.
-    // confirmedMaxSeats=5 → effectiveMax=5, available = 5-1-2 = 2.
+    // 2 maxSeats − 1 member = 1, + 3 boost = 4
     expect(
-      computeAvailableSeats(
-        makeData({ maxSeats: 3, members, pendingInvites }),
-        [],
-        5
-      )
-    ).toBe(2);
+      computeAvailableSeats(makeData({ maxSeats: 2, members }), [], 3)
+    ).toBe(4);
   });
 
-  test("confirmedMaxSeats is ignored when server maxSeats is already higher", () => {
-    // Webhook fired: server returns maxSeats=5, confirmedMaxSeats=4 (stale override).
-    expect(computeAvailableSeats(makeData({ maxSeats: 5 }), [], 4)).toBe(5);
+  test("maxSeatsBoost prevents over-capacity after invite", () => {
+    const members = [
+      {
+        userId: "u1",
+        email: "a@example.com",
+        relation: "editors" as const,
+        createdAt: "",
+        username: "",
+      },
+    ];
+    const optimistic = [
+      {
+        notificationId: "opt-1",
+        email: "new@example.com",
+        relation: "viewers" as const,
+      },
+    ];
+    // Without boost: 1 maxSeat − 1 member − 1 optimistic = -1
+    // With boost of 1: 1 + 1 − 1 − 1 = 0
+    expect(
+      computeAvailableSeats(makeData({ maxSeats: 1, members }), optimistic, 1)
+    ).toBe(0);
   });
 });

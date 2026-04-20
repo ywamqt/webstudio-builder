@@ -6,11 +6,12 @@ import {
   $selectedStyleSources,
   $styleSourceSelections,
   $styleSources,
+  $styles,
 } from "~/shared/nano-states";
 import { addStyleSourceToInstance, __testing__ } from "./style-source-section";
 import { $awareness } from "~/shared/awareness";
 
-const { getComponentStates } = __testing__;
+const { duplicateStyleSource, getComponentStates } = __testing__;
 
 enableMapSet();
 registerContainers();
@@ -80,17 +81,45 @@ describe("getComponentStates", () => {
     const result = getComponentStates({
       predefinedStates: [],
       componentStates: [
-        { label: "Open", selector: "[data-state=open]" },
-        { label: "Closed", selector: "[data-state=closed]" },
+        { label: "Open", selector: '[data-state="open"]' },
+        { label: "Closed", selector: '[data-state="closed"]' },
       ],
       instanceStyleSourceIds: new Set(),
       styles: [],
       selectedStyleState: undefined,
     });
 
-    const openState = result.find((s) => s.selector === "[data-state=open]");
+    const openState = result.find((s) => s.selector === '[data-state="open"]');
     expect(openState?.source).toBe("component");
     expect(openState?.label).toBe("Open");
+  });
+
+  test("does not duplicate component states when styles exist for the same selector", () => {
+    const result = getComponentStates({
+      predefinedStates: [],
+      componentStates: [
+        { label: "Open", selector: '[data-state="open"]' },
+        { label: "Closed", selector: '[data-state="closed"]' },
+      ],
+      instanceStyleSourceIds: new Set(["style1"]),
+      styles: [
+        { styleSourceId: "style1", state: '[data-state="open"]' },
+        { styleSourceId: "style1", state: '[data-state="closed"]' },
+      ],
+      selectedStyleState: undefined,
+    });
+
+    const openStates = result.filter(
+      (s) => s.selector === '[data-state="open"]'
+    );
+    expect(openStates).toHaveLength(1);
+    expect(openStates[0].source).toBe("component");
+
+    const closedStates = result.filter(
+      (s) => s.selector === '[data-state="closed"]'
+    );
+    expect(closedStates).toHaveLength(1);
+    expect(closedStates[0].source).toBe("component");
   });
 
   test("removes selector when styles are cleared", () => {
@@ -152,5 +181,43 @@ test("add style source to instance", () => {
   expect($styleSourceSelections.get().get("body")).toEqual({
     instanceId: "body",
     values: ["token1", "token2", "local1"],
+  });
+});
+
+test("duplicate locked style source creates an unlocked copy", () => {
+  $instances.set(
+    new Map([
+      [
+        "body",
+        { type: "instance", id: "body", component: "Body", children: [] },
+      ],
+    ])
+  );
+  $awareness.set({
+    pageId: "",
+    instanceSelector: ["body"],
+  });
+  $styleSources.set(
+    new Map([
+      [
+        "token1",
+        { id: "token1", type: "token", name: "Primary", locked: true },
+      ],
+    ])
+  );
+  $styleSourceSelections.set(
+    new Map([["body", { instanceId: "body", values: ["token1"] }]])
+  );
+  $selectedStyleSources.set(new Map([["body", "token1"]]));
+  $styles.set(new Map());
+
+  const duplicatedId = duplicateStyleSource("token1");
+
+  expect(duplicatedId).toBeDefined();
+  const duplicatedStyleSource = $styleSources.get().get(duplicatedId!);
+  expect(duplicatedStyleSource).toEqual({
+    id: duplicatedId,
+    type: "token",
+    name: "Primary (copy)",
   });
 });
