@@ -43,28 +43,25 @@ import {
 } from "@webstudio-is/design-system";
 import { validateProjectDomain, type Project } from "@webstudio-is/project";
 import {
-  $awareness,
   $selectedPagePath,
-  findAwarenessByInstanceId,
-  type Awareness,
-} from "~/shared/awareness";
+  $selectedInstanceSelector,
+} from "~/shared/nano-states";
+import { findPageAndSelectorByInstanceId } from "~/shared/instance-utils";
+import { $selectedPageId } from "~/shared/nano-states";
 import {
   $authTokenPermissions,
-  $dataSources,
   $editingPageId,
-  $instances,
-  $pages,
-  $project,
   $publishedOrigin,
   $permissions,
   $stagingUsername,
   $stagingPassword,
-  $publisherHost,
 } from "~/shared/nano-states";
+import { $publisherHost } from "~/shared/sync/data-stores";
 import {
   $publishDialog,
   setActiveSidebarPanel,
 } from "../../shared/nano-states";
+import { $project } from "~/shared/sync/data-stores";
 import { Domains, PENDING_TIMEOUT, getPublishStatusAndText } from "./domains";
 import { CollapsibleDomainSection } from "./collapsible-domain-section";
 import {
@@ -79,10 +76,15 @@ import {
 import { AddDomain } from "./add-domain";
 import { humanizeString } from "~/shared/string-utils";
 import { trpcClient, nativeClient } from "~/shared/trpc/trpc-client";
-import { isPathnamePattern, type Templates } from "@webstudio-is/sdk";
+import {
+  getAllPages,
+  isPathnamePattern,
+  type Templates,
+} from "@webstudio-is/sdk";
 import { DomainCheckbox, domainToPublishName } from "./domain-checkbox";
 import { CopyToClipboard } from "~/shared/copy-to-clipboard";
 import { $openProjectSettings } from "~/shared/nano-states/project-settings";
+import { $dataSources, $instances, $pages } from "~/shared/sync/data-stores";
 import { RelativeTime } from "~/builder/shared/relative-time";
 import cmsUpgradeBanner from "~/shared/cms-upgrade-banner.svg?url";
 
@@ -327,7 +329,11 @@ const $restrictedFeatures = computed(
     const features = new Map<
       string,
       | undefined
-      | { awareness?: Awareness; view?: "pageSettings"; info?: ReactNode }
+      | {
+          navigate?: { pageId: string; instanceSelector: string[] };
+          view?: "pageSettings";
+          info?: ReactNode;
+        }
     >();
     if (pages === undefined) {
       return features;
@@ -341,17 +347,17 @@ const $restrictedFeatures = computed(
     }
     if (!permissions.allowDynamicData) {
       // pages with dynamic paths
-      for (const page of [pages.homePage, ...pages.pages]) {
-        const awareness = {
+      for (const page of getAllPages(pages)) {
+        const navigate = {
           pageId: page.id,
           instanceSelector: [page.rootInstanceId],
         };
         // allow catch all for 404 pages on free plan
         if (isPathnamePattern(page.path) && page.path !== "/*") {
-          features.set("Dynamic path", { awareness, view: "pageSettings" });
+          features.set("Dynamic path", { navigate, view: "pageSettings" });
         }
         if (page.meta.redirect && page.meta.redirect !== `""`) {
-          features.set("Redirect", { awareness, view: "pageSettings" });
+          features.set("Redirect", { navigate, view: "pageSettings" });
         }
       }
       // has resource variables
@@ -359,7 +365,11 @@ const $restrictedFeatures = computed(
         if (dataSource.type === "resource") {
           const instanceId = dataSource.scopeInstanceId ?? "";
           features.set("Resource variable", {
-            awareness: findAwarenessByInstanceId(pages, instances, instanceId),
+            navigate: findPageAndSelectorByInstanceId(
+              pages,
+              instances,
+              instanceId
+            ),
           });
         }
       }
@@ -401,19 +411,32 @@ const Publish = ({
   timesLeft,
   disabled,
   refresh,
+  restrictedFeatures,
 }: {
   project: Project;
   timesLeft: number;
   disabled: boolean;
   refresh: () => Promise<void>;
+  restrictedFeatures: Map<
+    string,
+    | undefined
+    | {
+        navigate?: { pageId: string; instanceSelector: string[] };
+        view?: "pageSettings";
+        info?: ReactNode;
+      }
+  >;
 }) => {
   const { maxDailyPublishesPerUser } = useStore($permissions);
+  const { userPublishCount } = useUserPublishCount();
   const [publishError, setPublishError] = useState<
     undefined | JSX.Element | string
   >();
   const [isPublishing, setIsPublishing] = useOptimistic(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [hasSelectedDomains, setHasSelectedDomains] = useState(false);
+  const [hasCustomDomainsSelected, setHasCustomDomainsSelected] =
+    useState(false);
   const countdown = usePublishCountdown(isPublishing);
 
   useEffect(() => {
@@ -425,8 +448,18 @@ const Publish = ({
 
     const handleFormInput = () => {
       const formData = new FormData(form);
-      const domainsSelected = formData.getAll(domainToPublishName).length;
-      setHasSelectedDomains(domainsSelected > 0);
+      const domainsSelected = formData
+        .getAll(domainToPublishName)
+        .map((domain) => domain.toString());
+
+      setHasSelectedDomains(domainsSelected.length > 0);
+
+      // Check if any custom domains are selected
+      // Custom domains are those that are NOT the staging domain (project.domain)
+      const hasCustom = domainsSelected.some(
+        (domain) => domain !== project.domain
+      );
+      setHasCustomDomainsSelected(hasCustom);
     };
 
     const observer = new MutationObserver(() => {
@@ -445,7 +478,7 @@ const Publish = ({
     return () => {
       observer.disconnect();
     };
-  }, []);
+  }, [project.domain]);
 
   const handlePublish = async (formData: FormData) => {
     setPublishError(undefined);
@@ -582,7 +615,12 @@ const Publish = ({
           formAction={handlePublish}
           color="positive"
           state={showPendingState ? "pending" : undefined}
-          disabled={hasSelectedDomains === false || disabled}
+          disabled={
+            hasSelectedDomains === false ||
+            disabled ||
+            (restrictedFeatures.size > 0 && hasCustomDomainsSelected) ||
+            userPublishCount >= maxDailyPublishesPerUser
+          }
         >
           {countdown !== undefined && countdown > 0
             ? `Publishing (${countdown}s)`
@@ -789,7 +827,7 @@ const buttonLinkClass = css({
   ...textVariants.link,
 }).toString();
 
-const UpgradeBanner = () => {
+const UpgradeBanner = ({ hasCustomDomains }: { hasCustomDomains: boolean }) => {
   const restrictedFeatures = useStore($restrictedFeatures);
   const { canAddDomain } = useCanAddDomain();
   const { userPublishCount, maxDailyPublishesPerUser } = useUserPublishCount();
@@ -812,7 +850,9 @@ const UpgradeBanner = () => {
     );
   }
 
-  if (restrictedFeatures.size > 0) {
+  // Only show Pro feature upgrade banner if custom domains are available
+  // Free tier users can still publish to staging domain with Pro features
+  if (restrictedFeatures.size > 0 && hasCustomDomains) {
     return (
       <PanelBanner>
         <img
@@ -824,18 +864,21 @@ const UpgradeBanner = () => {
         <Text variant="regularBold">Following Pro features are used:</Text>
         <Text as="ul" color="destructive" css={{ paddingLeft: "1em" }}>
           {Array.from(restrictedFeatures).map(
-            ([message, { awareness, view, info } = {}], index) => (
+            ([message, { navigate, view, info } = {}], index) => (
               <li key={index}>
                 <Flex align="center" gap="1">
-                  {awareness ? (
+                  {navigate ? (
                     <button
                       className={buttonLinkClass}
                       type="button"
                       onClick={() => {
-                        $awareness.set(awareness);
+                        $selectedPageId.set(navigate.pageId);
+                        $selectedInstanceSelector.set(
+                          navigate.instanceSelector
+                        );
                         if (view === "pageSettings") {
                           setActiveSidebarPanel("pages");
-                          $editingPageId.set(awareness.pageId);
+                          $editingPageId.set(navigate.pageId);
                         }
                       }}
                     >
@@ -854,7 +897,9 @@ const UpgradeBanner = () => {
             )
           )}
         </Text>
-        <Text>You can delete these features or upgrade.</Text>
+        <Text>
+          You can delete these features or upgrade to publish to custom domains.
+        </Text>
         <Flex align="center" gap={1}>
           <UpgradeIcon />
           <Link
@@ -915,6 +960,11 @@ const Content = (props: {
       domain.latestBuildVirtual == null
   );
 
+  // Check if any custom domains exist (active and verified)
+  const hasCustomDomains = project.domainsVirtual.some(
+    (domain) => domain.status === "ACTIVE" && domain.verified
+  );
+
   return (
     <form>
       <ScrollArea>
@@ -947,7 +997,7 @@ const Content = (props: {
           }}
           onExportClick={props.onExportClick}
         />
-        <UpgradeBanner />
+        <UpgradeBanner hasCustomDomains={hasCustomDomains} />
         {hasUnpublishedDomains && (
           <PanelBanner>
             <Flex align="center" gap="1">
@@ -964,10 +1014,8 @@ const Content = (props: {
           project={project}
           refresh={refreshProject}
           timesLeft={maxDailyPublishesPerUser - userPublishCount}
-          disabled={
-            restrictedFeatures.size > 0 ||
-            userPublishCount >= maxDailyPublishesPerUser
-          }
+          disabled={false}
+          restrictedFeatures={restrictedFeatures}
         />
       </Flex>
     </form>
