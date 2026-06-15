@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validateBasicAuth } from "@webstudio-is/wsauth";
 
 export type System = {
   params: Record<string, string | undefined>;
@@ -43,7 +44,53 @@ export const PageTitle = z
     `Minimum ${MIN_TITLE_LENGTH} characters required`
   );
 
-export const documentTypes = ["html", "xml"] as const;
+export const documentTypes = ["html", "xml", "text"] as const;
+
+const BasicAuthFields = {
+  login: z.string(),
+  password: z.string(),
+};
+
+const validateBasicAuthFields = (
+  {
+    login,
+    password,
+  }: {
+    login: string;
+    password: string;
+  },
+  context: z.RefinementCtx
+) => {
+  for (const issue of validateBasicAuth({ login, password }).issues ?? []) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: issue.path,
+      message: issue.message,
+    });
+  }
+};
+
+const PageBasicAuth = z
+  .object({
+    method: z.literal("basic"),
+    ...BasicAuthFields,
+  })
+  .superRefine(validateBasicAuthFields);
+
+const LegacyPageBasicAuth = z
+  .object({
+    type: z.literal("basic"),
+    ...BasicAuthFields,
+  })
+  .superRefine(validateBasicAuthFields)
+  .transform(({ login, password }) => ({
+    method: "basic" as const,
+    login,
+    password,
+  }));
+
+export const PageAuth = z.union([PageBasicAuth, LegacyPageBasicAuth]);
+export type PageAuth = z.infer<typeof PageAuth>;
 
 const commonPageFields = {
   id: PageId,
@@ -62,6 +109,8 @@ const commonPageFields = {
     status: z.string().optional(),
     redirect: z.string().optional(),
     documentType: z.optional(z.enum(documentTypes)),
+    content: z.string().optional(),
+    auth: PageAuth.optional(),
     custom: z
       .array(
         z.object({
@@ -148,12 +197,24 @@ const Page = z.object({
   path: z.union([HomePagePath, PagePath]),
 });
 
+export const PageTemplate = z.object({
+  id: PageId,
+  name: PageName,
+  title: PageTitle,
+  rootInstanceId: z.string(),
+  systemDataSourceId: z.string().optional(),
+  meta: commonPageFields.meta,
+});
+
+export type PageTemplate = z.infer<typeof PageTemplate>;
+
 const ProjectMeta = z.object({
   // All fields are optional to ensure consistency and allow for the addition of new fields without requiring migration
   siteName: z.string().optional(),
   contactEmail: z.string().optional(),
   faviconAssetId: z.string().optional(),
   code: z.string().optional(),
+  auth: z.string().optional(),
 });
 export type ProjectMeta = z.infer<typeof ProjectMeta>;
 
@@ -194,6 +255,7 @@ export const Pages = z
     homePageId: PageId,
     rootFolderId: FolderId,
     pages: z.map(PageId, Page),
+    pageTemplates: z.map(PageId, PageTemplate).optional(),
     folders: z
       .map(FolderId, Folder)
       .refine((folders) => folders.size > 0, "Folders can't be empty"),
@@ -235,6 +297,22 @@ export const Pages = z
           code: z.ZodIssueCode.custom,
           path: ["pages", pageId, "path"],
           message: "Page path can't be empty",
+        });
+      }
+    }
+    for (const [templateId, template] of pages.pageTemplates ?? []) {
+      if (template.id !== templateId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pageTemplates", templateId, "id"],
+          message: "Page template id must match its record key",
+        });
+      }
+      if (pages.pages.has(templateId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pageTemplates", templateId, "id"],
+          message: "Page template id must not match an existing page id",
         });
       }
     }

@@ -1,18 +1,15 @@
 import type { AuthPermit } from "@webstudio-is/trpc-interface/index.server";
 import type { BuildPatchTransaction } from "./build-patch-core";
-
-const contentNamespaces = new Set(["props"]);
+import {
+  validateContentModeTransaction,
+  type ContentModeCapabilities,
+} from "../content-mode-permissions";
 
 export const getRequiredPermitForBuildPatchTransaction = (
-  transaction: BuildPatchTransaction
+  transaction: BuildPatchTransaction,
+  capabilities: ContentModeCapabilities
 ): AuthPermit => {
-  for (const change of transaction.payload) {
-    if (change.patches.length === 0) {
-      continue;
-    }
-    if (contentNamespaces.has(change.namespace) === false) {
-      return "build";
-    }
-  }
-  return "edit";
+  return validateContentModeTransaction({ capabilities, transaction }).success
+    ? "edit"
+    : "build";
 };

@@ -1,7 +1,8 @@
 import { computed } from "nanostores";
-import { nanoid } from "nanoid";
+import slugify from "slugify";
 import {
   type Page,
+  type PageTemplate,
   type Folder,
   type WebstudioData,
   Pages,
@@ -21,15 +22,40 @@ import {
   updateWebstudioData,
 } from "~/shared/instance-utils";
 import { $variableValuesByInstanceSelector } from "~/shared/nano-states";
-import { $dataSources } from "~/shared/sync/data-stores";
-import { $pages } from "~/shared/sync/data-stores";
-import { insertPageCopyMutable } from "~/shared/page-utils";
+import { $dataSources, $pages } from "~/shared/sync/data-stores";
+import {
+  createFolderCopyData,
+  createTemplateCopyData,
+  insertFolderCopyFromDataMutable,
+  insertPageCopyMutable,
+  insertPageFromTemplateMutable,
+  insertTemplateCopyFromFragmentsMutable,
+} from "~/shared/page-utils";
 import {
   $selectedPage,
   getInstanceKey,
   getInstancePath,
 } from "~/shared/nano-states";
 import { selectPage } from "~/shared/nano-states";
+
+export const nameToPath = (pages: Pages | undefined, name: string) => {
+  if (name === "") {
+    return "";
+  }
+  const slug = slugify(name, { lower: true, strict: true });
+  const path = `/${slug}`;
+  if (pages === undefined) {
+    return path;
+  }
+  if (findPageByIdOrPath(path, pages) === undefined) {
+    return path;
+  }
+  let suffix = 1;
+  while (findPageByIdOrPath(`${path}${suffix}`, pages) !== undefined) {
+    suffix++;
+  }
+  return `${path}${suffix}`;
+};
 
 /**
  * When page or folder needs to be deleted or moved to a different parent,
@@ -338,101 +364,6 @@ export const duplicatePage = (pageId: Page["id"]) => {
   return newPageId;
 };
 
-const deduplicateName = (usedNames: Set<string>, name: string) => {
-  const { name: baseName = name, copyNumber } =
-    // extract a number from "name (copyNumber)"
-    name.match(/^(?<name>.+) \((?<copyNumber>\d+)\)$/)?.groups ?? {};
-  let nameNumber = Number(copyNumber ?? "0");
-  let newName: string;
-  do {
-    nameNumber += 1;
-    newName = `${baseName} (${nameNumber})`;
-  } while (usedNames.has(newName));
-  return newName;
-};
-
-const deduplicateSlug = (usedSlugs: Set<string>, slug: string) => {
-  // extract a number from "slug-N"
-  const { slug: baseSlug = slug, copyNumber } =
-    slug.match(/^(?<slug>.+)-(?<copyNumber>\d+)$/)?.groups ?? {};
-  let counter = Number(copyNumber ?? "0");
-  let newSlug: string;
-  do {
-    counter += 1;
-    newSlug = baseSlug ? `${baseSlug}-${counter}` : `copy-${counter}`;
-  } while (usedSlugs.has(newSlug));
-  return newSlug;
-};
-
-const insertFolderCopyMutable = ({
-  source,
-  target,
-}: {
-  source: { data: WebstudioData; folderId: Folder["id"] };
-  target: { data: WebstudioData; parentFolderId: Folder["id"] };
-}): Folder["id"] | undefined => {
-  const sourceFolder = source.data.pages.folders.get(source.folderId);
-  if (sourceFolder === undefined) {
-    return;
-  }
-
-  const parentFolder = target.data.pages.folders.get(target.parentFolderId);
-  const usedNames = new Set<string>();
-  const usedSlugs = new Set<string>();
-  for (const childId of parentFolder?.children ?? []) {
-    const childFolder = target.data.pages.folders.get(childId);
-    if (childFolder) {
-      usedNames.add(childFolder.name);
-      usedSlugs.add(childFolder.slug);
-      continue;
-    }
-    const childPage = target.data.pages.pages.get(childId);
-    if (childPage) {
-      usedNames.add(childPage.name);
-    }
-  }
-
-  // Create new folder with deduplicated name and slug
-  const newFolderId = nanoid();
-  const newFolder: Folder = {
-    id: newFolderId,
-    name: deduplicateName(usedNames, sourceFolder.name),
-    slug: deduplicateSlug(usedSlugs, sourceFolder.slug),
-    children: [],
-  };
-
-  // Add new folder to the folders array
-  target.data.pages.folders.set(newFolder.id, newFolder);
-
-  // Register new folder in parent
-  for (const folder of getAllFolders(target.data.pages)) {
-    if (folder.id === target.parentFolderId) {
-      folder.children.push(newFolderId);
-    }
-  }
-
-  // Duplicate all children (pages and nested folders)
-  for (const childId of sourceFolder.children) {
-    const childFolder = source.data.pages.folders.get(childId);
-
-    if (childFolder) {
-      // It's a nested folder - duplicate it recursively
-      insertFolderCopyMutable({
-        source: { data: source.data, folderId: childId },
-        target: { data: target.data, parentFolderId: newFolderId },
-      });
-    } else {
-      // It's a page - duplicate it
-      insertPageCopyMutable({
-        source: { data: source.data, pageId: childId },
-        target: { data: target.data, folderId: newFolderId },
-      });
-    }
-  }
-
-  return newFolderId;
-};
-
 export const duplicateFolder = (folderId: Folder["id"]) => {
   const pages = $pages.get();
   const currentFolder =
@@ -444,10 +375,14 @@ export const duplicateFolder = (folderId: Folder["id"]) => {
   }
   let newFolderId: undefined | string;
   updateWebstudioData((data) => {
-    newFolderId = insertFolderCopyMutable({
-      source: { data, folderId },
-      target: { data, parentFolderId: currentFolder.id },
-    });
+    const copyData = createFolderCopyData({ data, folderId });
+    if (copyData) {
+      newFolderId = insertFolderCopyFromDataMutable({
+        source: copyData,
+        target: { data, parentFolderId: currentFolder.id },
+        forceFolderCopySuffix: true,
+      });
+    }
   });
   return newFolderId;
 };
@@ -515,4 +450,132 @@ export const canDrop = (dropTarget: DropTarget, pages: Pages) => {
     return false;
   }
   return true;
+};
+
+export const deleteTemplateMutable = (
+  templateId: PageTemplate["id"],
+  data: WebstudioData
+) => {
+  const template = data.pages.pageTemplates?.get(templateId);
+  if (template === undefined) {
+    return;
+  }
+  deleteInstanceMutable(
+    data,
+    getInstancePath([template.rootInstanceId], data.instances)
+  );
+  data.pages.pageTemplates?.delete(templateId);
+};
+
+export const duplicateTemplate = (templateId: PageTemplate["id"]) => {
+  const pages = $pages.get();
+  const template = pages?.pageTemplates?.get(templateId);
+  if (template === undefined) {
+    return;
+  }
+  let newTemplateId: undefined | string;
+  updateWebstudioData((data) => {
+    data.pages.pageTemplates ??= new Map();
+    const copyData = createTemplateCopyData({
+      data,
+      template,
+    });
+    newTemplateId = insertTemplateCopyFromFragmentsMutable({
+      source: {
+        template: copyData.template,
+        bodyFragment: copyData.bodyFragment,
+      },
+      target: { data },
+    });
+  });
+  return newTemplateId;
+};
+
+export const instantiateTemplate = ({
+  templateId,
+  overrides,
+  folderId,
+  contentMode,
+}: {
+  templateId: PageTemplate["id"];
+  overrides: { name: string; path: string };
+  folderId: Folder["id"];
+  contentMode?: boolean;
+}) => {
+  let newPageId: undefined | string;
+  updateWebstudioData((data) => {
+    newPageId = insertPageFromTemplateMutable({
+      templateId,
+      source: { data },
+      target: { data, folderId },
+      overrides,
+      contentMode,
+    });
+  });
+  return newPageId;
+};
+
+export const instantiateTemplateAsNewPage = (
+  templateId: PageTemplate["id"]
+) => {
+  const pages = $pages.get();
+  const template = pages?.pageTemplates?.get(templateId);
+  if (!pages || !template) {
+    return;
+  }
+
+  // Deduplicate name against existing pages in the root folder
+  const rootFolder = getFolderById(pages, pages.rootFolderId);
+  const usedNames = new Set<string>();
+  for (const childId of rootFolder?.children ?? []) {
+    const page = findPageByIdOrPath(childId, pages);
+    if (page) {
+      usedNames.add(page.name);
+    }
+  }
+  let name = template.name;
+  let nameNum = 1;
+  while (usedNames.has(name)) {
+    name = `${template.name} (${nameNum})`;
+    nameNum += 1;
+  }
+
+  return instantiateTemplate({
+    templateId,
+    overrides: { name, path: nameToPath(pages, name) },
+    folderId: pages.rootFolderId,
+  });
+};
+
+export const reorderTemplatesMutable = (
+  sourceId: string,
+  targetId: string,
+  position: "before" | "after",
+  data: WebstudioData
+) => {
+  const templates = data.pages.pageTemplates;
+  if (templates === undefined || sourceId === targetId) {
+    return;
+  }
+
+  const orderedTemplates = Array.from(templates.values());
+  const sourceIndex = orderedTemplates.findIndex((t) => t.id === sourceId);
+  if (sourceIndex === -1) {
+    return;
+  }
+
+  const [sourceTemplate] = orderedTemplates.splice(sourceIndex, 1);
+
+  const targetIndex = orderedTemplates.findIndex((t) => t.id === targetId);
+  if (targetIndex === -1) {
+    orderedTemplates.push(sourceTemplate);
+  } else {
+    const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+    orderedTemplates.splice(insertIndex, 0, sourceTemplate);
+  }
+
+  templates.clear();
+  for (const template of orderedTemplates) {
+    templates.set(template.id, template);
+  }
 };

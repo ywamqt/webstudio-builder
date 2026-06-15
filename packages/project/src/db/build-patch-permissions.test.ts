@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { getRequiredPermitForBuildPatchTransaction } from "./build-patch-permissions";
 import type { BuildPatchTransaction } from "./build-patch-core";
+import type { ContentModeCapabilities } from "../content-mode-permissions";
 
 const transaction = (
   namespace: string,
@@ -12,31 +13,42 @@ const transaction = (
   payload: [{ namespace, patches }],
 });
 
+const capabilities: ContentModeCapabilities = {
+  editablePropIds: new Set(["prop-1"]),
+  editableInstanceIds: new Set(["instance-1"]),
+  instances: new Map(),
+  metas: new Map(),
+  props: new Map([
+    [
+      "prop-1",
+      {
+        id: "prop-1",
+        instanceId: "instance-1",
+        name: "title",
+        type: "string",
+        value: "Old title",
+      },
+    ],
+  ]),
+  htmlTagsByInstanceId: new Map(),
+  styleSources: new Map(),
+  styleSourceSelections: new Map(),
+  styles: new Map(),
+  contentRootIds: new Set(),
+};
+
+const permit = (buildPatchTransaction: BuildPatchTransaction) =>
+  getRequiredPermitForBuildPatchTransaction(
+    buildPatchTransaction,
+    capabilities
+  );
+
 describe("getRequiredPermitForBuildPatchTransaction", () => {
-  test("allows content prop edits with edit permit", () => {
-    expect(
-      getRequiredPermitForBuildPatchTransaction(transaction("props"))
-    ).toBe("edit");
+  test("returns edit permit for content mode transactions", () => {
+    expect(permit(transaction("props"))).toBe("edit");
   });
 
-  test("requires build permit for style edits", () => {
-    expect(
-      getRequiredPermitForBuildPatchTransaction(transaction("styles"))
-    ).toBe("build");
-  });
-
-  test("requires build permit when any change in the transaction is design scoped", () => {
-    expect(
-      getRequiredPermitForBuildPatchTransaction({
-        id: "tx-1",
-        payload: [
-          { namespace: "props", patches: [] },
-          {
-            namespace: "breakpoints",
-            patches: [{ op: "add", path: ["bp-1"], value: {} }],
-          },
-        ],
-      })
-    ).toBe("build");
+  test("returns build permit for transactions outside content mode", () => {
+    expect(permit(transaction("styles"))).toBe("build");
   });
 });

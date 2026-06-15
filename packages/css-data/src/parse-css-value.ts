@@ -1,10 +1,13 @@
 import {
   type CssNode,
+  definitionSyntax,
   type FunctionNode,
   generate,
   lexer,
   List,
   parse,
+  tokenize,
+  tokenTypes,
   walk,
 } from "css-tree";
 import warnOnce from "warn-once";
@@ -54,15 +57,204 @@ const splitRepeated = (nodes: CssNode[]) => {
   return lists;
 };
 
+const cssNumericFunctionNames = new Set([
+  "calc",
+  "min",
+  "max",
+  "clamp",
+  "round",
+  "mod",
+  "rem",
+  "sin",
+  "cos",
+  "tan",
+  "asin",
+  "acos",
+  "atan",
+  "atan2",
+  "pow",
+  "sqrt",
+  "hypot",
+  "log",
+  "exp",
+  "abs",
+  "sign",
+]);
+
+const cssMathConstants = new Set(["e", "pi", "infinity", "-infinity", "nan"]);
+
+const cssNumericTypeNames = new Set([
+  "length",
+  "length-percentage",
+  "percentage",
+  "number",
+  "integer",
+  "angle",
+  "time",
+  "frequency",
+  "resolution",
+  "flex",
+  "alpha-value",
+]);
+
+const canFallbackToCssMath = (ast: CssNode, syntax: string | undefined) => {
+  if (syntax === undefined) {
+    return false;
+  }
+
+  let hasCssNumericType = false;
+  try {
+    definitionSyntax.walk(definitionSyntax.parse(syntax), (node) => {
+      if (
+        node.type === "Type" &&
+        "name" in node &&
+        cssNumericTypeNames.has(node.name)
+      ) {
+        hasCssNumericType = true;
+      }
+    });
+  } catch {
+    return false;
+  }
+  if (hasCssNumericType === false) {
+    return false;
+  }
+
+  let hasCssNumericFunction = false;
+  let hasUnknownIdentifier = false;
+  walk(ast, (node) => {
+    if (node.type === "Function" && cssNumericFunctionNames.has(node.name)) {
+      hasCssNumericFunction = true;
+    }
+    if (
+      node.type === "Identifier" &&
+      cssMathConstants.has(node.name.toLowerCase()) === false
+    ) {
+      hasUnknownIdentifier = true;
+    }
+  });
+  return hasCssNumericFunction && hasUnknownIdentifier === false;
+};
+
+const getSyntaxMatchErrorSyntax = (error: Error | null | undefined) => {
+  if (error != null && "syntax" in error && typeof error.syntax === "string") {
+    return error.syntax;
+  }
+};
+
+const matchingOpenToken = new Map([
+  [tokenTypes.RightSquareBracket, tokenTypes.LeftSquareBracket],
+  [tokenTypes.RightCurlyBracket, tokenTypes.LeftCurlyBracket],
+]);
+
+const endsWithUnescaped = (value: string, char: string) => {
+  if (value.endsWith(char) === false) {
+    return false;
+  }
+  let backslashes = 0;
+  for (let index = value.length - 2; index >= 0; index -= 1) {
+    if (value[index] !== "\\") {
+      break;
+    }
+    backslashes += 1;
+  }
+  return backslashes % 2 === 0;
+};
+
+export const isValidCustomPropertyValue = (value: string): boolean => {
+  if (endsWithUnescaped(value, "\\")) {
+    return false;
+  }
+
+  const blockStack: number[] = [];
+  const tokenizeValue = tokenize as unknown as (
+    source: string,
+    onToken: (type: number, start: number, end: number) => void
+  ) => void;
+
+  tokenizeValue(value, (type, start, end) => {
+    const tokenValue = value.slice(start, end);
+
+    if (type === tokenTypes.BadString || type === tokenTypes.BadUrl) {
+      blockStack.push(Number.NaN);
+      return;
+    }
+
+    if (type === tokenTypes.String) {
+      const quote = tokenValue[0];
+      if (
+        quote !== undefined &&
+        (quote === `"` || quote === `'`) &&
+        (tokenValue.length < 2 ||
+          endsWithUnescaped(tokenValue, quote) === false)
+      ) {
+        blockStack.push(Number.NaN);
+      }
+      return;
+    }
+
+    if (type === tokenTypes.Url) {
+      if (endsWithUnescaped(tokenValue, ")") === false) {
+        blockStack.push(Number.NaN);
+      }
+      return;
+    }
+
+    if (type === tokenTypes.Comment) {
+      if (tokenValue.endsWith("*/") === false) {
+        blockStack.push(Number.NaN);
+      }
+      return;
+    }
+
+    if (
+      type === tokenTypes.Function ||
+      type === tokenTypes.LeftParenthesis ||
+      type === tokenTypes.LeftSquareBracket ||
+      type === tokenTypes.LeftCurlyBracket
+    ) {
+      blockStack.push(type);
+      return;
+    }
+
+    if (type === tokenTypes.RightParenthesis) {
+      const open = blockStack.at(-1);
+      if (open !== tokenTypes.LeftParenthesis && open !== tokenTypes.Function) {
+        blockStack.push(Number.NaN);
+        return;
+      }
+      blockStack.pop();
+      return;
+    }
+
+    const expectedOpen = matchingOpenToken.get(type);
+    if (expectedOpen !== undefined) {
+      if (blockStack.at(-1) !== expectedOpen) {
+        blockStack.push(Number.NaN);
+        return;
+      }
+      blockStack.pop();
+      return;
+    }
+
+    if (type === tokenTypes.Semicolon && blockStack.length === 0) {
+      blockStack.push(Number.NaN);
+    }
+  });
+
+  return blockStack.length === 0;
+};
+
 // Because csstree parser has bugs we use CSSStyleValue to validate css properties if available
 // and fall back to csstree.
 export const isValidDeclaration = (
   property: CssProperty,
   value: string
 ): boolean => {
-  // Custom properties accept any value.
+  // Custom properties accept any valid declaration value token stream, but
+  // malformed strings, URLs, comments, or blocks can invalidate the whole rule.
   if (property.startsWith("--")) {
-    return true;
+    return isValidCustomPropertyValue(value);
   }
 
   // Parse once upfront for structural inspection. cssTryParseValue may return
@@ -109,6 +301,10 @@ export const isValidDeclaration = (
   // @todo remove after csstree fixes
   // - https://github.com/csstree/csstree/issues/246
   // - https://github.com/csstree/csstree/issues/164
+  if (typeof CSS !== "undefined" && CSS.supports(property, value)) {
+    return true;
+  }
+
   if (typeof CSSStyleValue !== "undefined") {
     try {
       CSSStyleValue.parse(property, value);
@@ -140,6 +336,17 @@ export const isValidDeclaration = (
 
   // allow to parse unknown properties as unparsed
   if (matchResult.error?.message.includes("Unknown property")) {
+    return true;
+  }
+
+  // css-tree does not fully validate modern CSS math with nested calc()
+  // operators, for example `font-size: clamp(... calc(... / ...) ...)`.
+  // Browser-valid values should be preserved as unparsed instead of stored as
+  // invalid values, which are intended for transient editor state.
+  if (
+    matchResult.matched == null &&
+    canFallbackToCssMath(ast, getSyntaxMatchErrorSyntax(matchResult.error))
+  ) {
     return true;
   }
 

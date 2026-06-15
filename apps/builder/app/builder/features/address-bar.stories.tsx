@@ -3,7 +3,7 @@ import type { Meta, StoryFn } from "@storybook/react";
 import { StorySection, Text } from "@webstudio-is/design-system";
 import { ToolbarButton } from "@webstudio-is/design-system";
 import { WebstudioIcon } from "@webstudio-is/icons";
-import { TopbarLayout } from "~/builder/shared/topbar-layout";
+import { TopbarLayout } from "~/builder/shared/topbar";
 import { AddressBarPopover } from "./address-bar";
 import { $dataSources, $pages } from "~/shared/sync/data-stores";
 import { registerContainers } from "~/shared/sync/sync-stores";
@@ -68,7 +68,11 @@ const HistoryInspect = () => {
   const page = useStore($selectedPage);
   return (
     <Text variant="mono" css={{ whiteSpace: "pre" }}>
-      {JSON.stringify(page?.history, null, 2)}
+      {JSON.stringify(
+        page !== undefined && "history" in page ? page.history : undefined,
+        null,
+        2
+      )}
     </Text>
   );
 };

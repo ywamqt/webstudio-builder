@@ -27,6 +27,9 @@ import type {
 } from "@webstudio-is/sdk";
 import {
   coreMetas,
+  getStyleDeclKey,
+  blockComponent,
+  blockTemplateComponent,
   portalComponent,
   elementComponent,
   ROOT_INSTANCE_ID,
@@ -46,12 +49,16 @@ import {
   buildInstancePath,
   wrapInstance,
   toggleInstanceShow,
+  detachSharedSlotContentMutable,
+  unwrapInstance,
   unwrapInstanceMutable,
   canUnwrapInstance,
   canConvertInstance,
   convertInstance,
   deleteSelectedInstance,
   detectPageTokenConflicts,
+  canDeleteInstanceInContentMode,
+  __testing__,
 } from "./instance-utils";
 import type { InstancePath } from "./nano-states";
 import { $registeredComponentMetas } from "./nano-states";
@@ -73,6 +80,13 @@ import { $selectedInstanceSelector, getInstancePath } from "./nano-states";
 import { selectPage } from "./nano-states";
 import { selectInstance } from "./nano-states";
 import { $selectedPageId } from "./nano-states/pages";
+
+const {
+  getFragmentContentModeCapabilities,
+  getFragmentInstancesData,
+  insertFragmentAssetsMutable,
+  insertFragmentBreakpointsMutable,
+} = __testing__;
 
 enableMapSet();
 registerContainers();
@@ -196,6 +210,177 @@ const createFontAsset = (id: string, family: string): Asset => {
     meta: { style: "normal", family, variationAxes: {} },
   };
 };
+
+describe("fragment copy helpers", () => {
+  test("builds fragment instance maps and portal content roots", () => {
+    const fragment = createFragment({
+      instances: [
+        createInstance("portal", portalComponent, [
+          { type: "id", value: "portal-root" },
+        ]),
+        createInstance("portal-root", "Box", []),
+      ],
+    });
+
+    const { fragmentInstances, portalContentRootIds } =
+      getFragmentInstancesData(fragment);
+
+    expect(Array.from(fragmentInstances.keys())).toEqual([
+      "portal",
+      "portal-root",
+    ]);
+    expect(portalContentRootIds).toEqual(new Set(["portal-root"]));
+  });
+
+  test("inserts fragment assets without overwriting existing assets", () => {
+    const existingAsset = createImageAsset(
+      "existing-asset",
+      "Existing",
+      "target-project"
+    );
+    const assets = new Map<Asset["id"], Asset>([
+      [existingAsset.id, existingAsset],
+    ]);
+
+    insertFragmentAssetsMutable({
+      fragment: createFragment({
+        assets: [
+          createImageAsset("existing-asset", "Source Existing", "source"),
+          createImageAsset("new-asset", "New", "source"),
+        ],
+      }),
+      projectId: "target-project",
+      assets,
+    });
+
+    expect(assets.get("existing-asset")).toBe(existingAsset);
+    expect(assets.get("new-asset")).toEqual({
+      ...createImageAsset("new-asset", "New", "source"),
+      projectId: "target-project",
+    });
+  });
+
+  test("inserts fragment breakpoints and reports limit merges", () => {
+    const baseBreakpoint: Breakpoint = { id: "base", label: "Base" };
+    const breakpoints = new Map<Breakpoint["id"], Breakpoint>([
+      [baseBreakpoint.id, baseBreakpoint],
+    ]);
+    let didMergeDueToLimit = false;
+
+    const mergedBreakpointIds = insertFragmentBreakpointsMutable({
+      fragment: createFragment({
+        breakpoints: [
+          baseBreakpoint,
+          { id: "desktop", label: "Desktop", minWidth: 1024 },
+        ],
+      }),
+      breakpoints,
+      onBreakpointLimitMerge: () => {
+        didMergeDueToLimit = true;
+      },
+    });
+
+    expect(mergedBreakpointIds.get("base")).toBe("base");
+    expect(breakpoints.get("desktop")).toEqual({
+      id: "desktop",
+      label: "Desktop",
+      minWidth: 1024,
+    });
+    expect(didMergeDueToLimit).toBe(false);
+  });
+
+  test("builds content-mode capabilities for fragment roots", () => {
+    const registeredComponentMetas = $registeredComponentMetas.get();
+    $registeredComponentMetas.set(
+      createFakeComponentMetas({
+        props: {
+          href: {
+            type: "string",
+            control: "url",
+            required: false,
+            contentMode: true,
+          },
+        },
+      })
+    );
+    try {
+      const fragment = createFragment({
+        children: [{ type: "id", value: "link" }],
+        instances: [createInstance("link", "Item", [])],
+        props: [
+          {
+            id: "href-prop",
+            instanceId: "link",
+            name: "href",
+            type: "string",
+            value: "/",
+          },
+        ],
+      });
+      const { fragmentInstances } = getFragmentInstancesData(fragment);
+
+      const capabilities = getFragmentContentModeCapabilities({
+        fragment,
+        fragmentInstances,
+        styleSources: new Map(),
+      });
+
+      expect(capabilities.contentRootIds).toEqual(new Set(["link"]));
+      expect(capabilities.editablePropIds.has("href-prop")).toBe(true);
+    } finally {
+      $registeredComponentMetas.set(registeredComponentMetas);
+    }
+  });
+});
+
+describe("canDeleteInstanceInContentMode", () => {
+  const instances = new Map([
+    ["body", createInstance("body", "Body", [{ type: "id", value: "block" }])],
+    [
+      "block",
+      createInstance("block", blockComponent, [
+        { type: "id", value: "child" },
+        { type: "id", value: "template" },
+      ]),
+    ],
+    [
+      "child",
+      createInstance("child", "Box", [{ type: "id", value: "nested" }]),
+    ],
+    ["nested", createInstance("nested", "Box", [])],
+    ["template", createInstance("template", blockTemplateComponent, [])],
+  ]);
+
+  test("allows deleting direct content block children", () => {
+    expect(
+      canDeleteInstanceInContentMode({
+        instanceSelector: ["child", "block", "body"],
+        instances,
+      })
+    ).toBe(true);
+  });
+
+  test("protects content block roots, nested descendants, and templates", () => {
+    expect(
+      canDeleteInstanceInContentMode({
+        instanceSelector: ["block", "body"],
+        instances,
+      })
+    ).toBe(false);
+    expect(
+      canDeleteInstanceInContentMode({
+        instanceSelector: ["nested", "child", "block", "body"],
+        instances,
+      })
+    ).toBe(false);
+    expect(
+      canDeleteInstanceInContentMode({
+        instanceSelector: ["template", "block", "body"],
+        instances,
+      })
+    ).toBe(false);
+  });
+});
 
 describe("insert instance children", () => {
   test("insert instance children into empty target", () => {
@@ -797,6 +982,83 @@ describe("reparent instance", () => {
     );
   });
 
+  test("sort shared slot content through visible slot drop target", () => {
+    const data = renderData(
+      <$.Body ws:id="body">
+        <$.Slot ws:id="slot1">
+          <$.Fragment ws:id="fragment">
+            <$.Box ws:id="box1"></$.Box>
+            <$.Box ws:id="box2"></$.Box>
+            <$.Box ws:id="box3"></$.Box>
+          </$.Fragment>
+        </$.Slot>
+        <$.Slot ws:id="slot2">
+          {/* same ids */}
+          <$.Fragment ws:id="fragment">
+            <$.Box ws:id="box1"></$.Box>
+            <$.Box ws:id="box2"></$.Box>
+            <$.Box ws:id="box3"></$.Box>
+          </$.Fragment>
+        </$.Slot>
+      </$.Body>
+    );
+    $registeredComponentMetas.set(createFakeComponentMetas({}));
+
+    reparentInstanceMutable(data, ["box1", "fragment", "slot1", "body"], {
+      parentSelector: ["slot2", "body"],
+      position: 3,
+    });
+
+    expect(data.instances.get("slot1")?.children).toEqual([
+      { type: "id", value: "fragment" },
+    ]);
+    expect(data.instances.get("slot2")?.children).toEqual([
+      { type: "id", value: "fragment" },
+    ]);
+    expect(data.instances.get("fragment")?.children).toEqual([
+      { type: "id", value: "box2" },
+      { type: "id", value: "box3" },
+      { type: "id", value: "box1" },
+    ]);
+  });
+
+  test("reparent only selected slot occurrence", () => {
+    const data = renderData(
+      <$.Body ws:id="body">
+        <$.Slot ws:id="slot1">
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+        <$.Slot ws:id="slot2">
+          {/* same ids */}
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+      </$.Body>
+    );
+    $project.set({ id: "projectId" } as Project);
+    $registeredComponentMetas.set(createFakeComponentMetas({}));
+
+    reparentInstanceMutable(data, ["div", "fragment", "slot1", "body"], {
+      parentSelector: ["body"],
+      position: "end",
+    });
+
+    expect(data.instances.get("slot1")?.children).toEqual([]);
+    expect(data.instances.get("slot2")?.children).toEqual([
+      { type: "id", value: "fragment" },
+    ]);
+    expect(data.instances.get("fragment")?.children).toEqual([
+      { type: "id", value: "div" },
+    ]);
+    expect(data.instances.get("body")?.children.at(-1)?.type).toBe("id");
+    expect(data.instances.get("body")?.children.at(-1)?.value).not.toBe(
+      "slot2"
+    );
+  });
+
   test("prevent slot reparenting into own children to avoid infinite loop", () => {
     const data = renderData(
       <$.Body ws:id="body">
@@ -1036,6 +1298,38 @@ describe("delete instance", () => {
     expect(data.instances.size).toEqual(2);
     expect(data.instances.get("slotId")?.children.length).toEqual(0);
   });
+
+  test("delete shared slot content from all slot occurrences", () => {
+    const data = renderData(
+      <$.Body ws:id="bodyId">
+        <$.Slot ws:id="slot1">
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+        <$.Slot ws:id="slot2">
+          {/* same ids */}
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+      </$.Body>
+    );
+
+    deleteInstanceMutable(
+      data,
+      getInstancePath(["div", "fragment", "slot1", "bodyId"], data.instances)
+    );
+
+    expect(data.instances.get("slot1")?.children).toEqual([
+      { type: "id", value: "fragment" },
+    ]);
+    expect(data.instances.get("slot2")?.children).toEqual([
+      { type: "id", value: "fragment" },
+    ]);
+    expect(data.instances.get("fragment")?.children).toEqual([]);
+    expect(data.instances.has("div")).toEqual(false);
+  });
 });
 
 describe("wrap in", () => {
@@ -1079,6 +1373,40 @@ describe("wrap in", () => {
         </ws.element>
       ).instances
     );
+  });
+
+  test("wrap only selected slot occurrence", () => {
+    $registeredComponentMetas.set(defaultMetasMap);
+    $instances.set(
+      renderData(
+        <$.Body ws:id="bodyId">
+          <$.Slot ws:id="slot1">
+            <$.Fragment ws:id="fragment">
+              <ws.element ws:tag="div" ws:id="div"></ws.element>
+            </$.Fragment>
+          </$.Slot>
+          <$.Slot ws:id="slot2">
+            {/* same ids */}
+            <$.Fragment ws:id="fragment">
+              <ws.element ws:tag="div" ws:id="div"></ws.element>
+            </$.Fragment>
+          </$.Slot>
+        </$.Body>
+      ).instances
+    );
+    selectInstance(["div", "fragment", "slot1", "bodyId"]);
+
+    wrapInstance(elementComponent, "div");
+
+    expect($instances.get().get("slot1")?.children).not.toEqual(
+      $instances.get().get("slot2")?.children
+    );
+    expect($instances.get().get("slot2")?.children).toEqual([
+      { type: "id", value: "fragment" },
+    ]);
+    expect($instances.get().get("fragment")?.children).toEqual([
+      { type: "id", value: "div" },
+    ]);
   });
 
   test("avoid wrapping text with link in link", () => {
@@ -1313,6 +1641,58 @@ describe("insert webstudio fragment copy", () => {
     $dataSources.set(new Map());
   });
 
+  test("duplicate only selected slot occurrence", () => {
+    const data = renderData(
+      <$.Body ws:id="body">
+        <$.Slot ws:id="slot1">
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+        <$.Slot ws:id="slot2">
+          {/* same ids */}
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+      </$.Body>
+    );
+
+    const instancePath = detachSharedSlotContentMutable(
+      data,
+      getInstancePath(["div", "fragment", "slot1", "body"], data.instances) ??
+        []
+    );
+    const selectedItem = instancePath[0];
+    const parentItem = instancePath[1];
+    if (selectedItem === undefined || parentItem === undefined) {
+      throw Error("Expected selected and parent items");
+    }
+
+    const fragment = extractWebstudioFragment(data, selectedItem.instance.id);
+    const { newInstanceIds } = insertWebstudioFragmentCopy({
+      data,
+      fragment,
+      availableVariables: [],
+      projectId: "current_project",
+    });
+    const newRootInstanceId = newInstanceIds.get(selectedItem.instance.id);
+    if (newRootInstanceId === undefined) {
+      throw Error("Expected duplicate instance id");
+    }
+    data.instances.get(parentItem.instance.id)?.children.splice(1, 0, {
+      type: "id",
+      value: newRootInstanceId,
+    });
+
+    expect(data.instances.get("slot2")?.children).toEqual([
+      { type: "id", value: "fragment" },
+    ]);
+    expect(data.instances.get("fragment")?.children).toEqual([
+      { type: "id", value: "div" },
+    ]);
+  });
+
   test("insert assets with same ids if missing", () => {
     const data = getWebstudioDataStub();
     insertWebstudioFragmentCopy({
@@ -1351,6 +1731,237 @@ describe("insert webstudio fragment copy", () => {
     ]);
   });
 
+  test("copies local styles with new ids and reuses existing token styles in content mode", () => {
+    const localStyleSource: StyleSource = { type: "local", id: "localBox" };
+    const unsupportedLocalStyleSource: StyleSource = {
+      type: "local",
+      id: "unsupportedLocal",
+    };
+    const tokenStyleSource: StyleSource = {
+      type: "token",
+      id: "token",
+      name: "Token",
+    };
+    const style = createStyleDecl("localBox", "base", "color", "red");
+    const unsupportedBreakpointStyle = createStyleDecl(
+      "localBox",
+      "desktop",
+      "backgroundColor",
+      "blue"
+    );
+    const unsupportedLocalStyle = createStyleDecl(
+      "unsupportedLocal",
+      "desktop",
+      "color",
+      "green"
+    );
+    const data = getWebstudioDataStub({
+      breakpoints: toMap<Breakpoint>([{ id: "base", label: "Base" }]),
+      instances: toMap([
+        createInstance("body", "Body", []),
+        createInstance("templateBox", "Box", []),
+      ]),
+      styleSources: toMap([
+        localStyleSource,
+        unsupportedLocalStyleSource,
+        tokenStyleSource,
+      ]),
+      styleSourceSelections: new Map([
+        [
+          "templateBox",
+          {
+            instanceId: "templateBox",
+            values: ["localBox", "unsupportedLocal", "token"],
+          },
+        ],
+      ]),
+      styles: new Map([
+        [getStyleDeclKey(style), style],
+        [
+          getStyleDeclKey(unsupportedBreakpointStyle),
+          unsupportedBreakpointStyle,
+        ],
+        [getStyleDeclKey(unsupportedLocalStyle), unsupportedLocalStyle],
+      ]),
+    });
+    const fragment = createFragment({
+      children: [{ type: "id", value: "templateBox" }],
+      instances: [createInstance("templateBox", "Box", [])],
+      styleSources: [
+        localStyleSource,
+        unsupportedLocalStyleSource,
+        tokenStyleSource,
+      ],
+      styleSourceSelections: [
+        {
+          instanceId: "templateBox",
+          values: ["localBox", "unsupportedLocal", "token"],
+        },
+      ],
+      styles: [style, unsupportedBreakpointStyle, unsupportedLocalStyle],
+    });
+
+    const { newInstanceIds } = insertWebstudioFragmentCopy({
+      data,
+      fragment,
+      availableVariables: [],
+      projectId: "current_project",
+      contentMode: true,
+    });
+    const newInstanceId = newInstanceIds.get("templateBox");
+
+    expect(newInstanceId).toBeDefined();
+    const selection = data.styleSourceSelections.get(newInstanceId ?? "");
+    expect(selection).toEqual({
+      instanceId: newInstanceId,
+      values: [expect.any(String), "token"],
+    });
+    const newLocalStyleSourceId = selection?.values[0];
+    expect(newLocalStyleSourceId).not.toBe("localBox");
+    expect(data.styleSources.get(newLocalStyleSourceId ?? "")).toEqual({
+      type: "local",
+      id: newLocalStyleSourceId,
+    });
+    expect(data.styles.get(getStyleDeclKey(style))).toEqual(style);
+    expect(
+      data.styles.get(
+        getStyleDeclKey({
+          ...style,
+          styleSourceId: newLocalStyleSourceId ?? "",
+        })
+      )
+    ).toEqual({ ...style, styleSourceId: newLocalStyleSourceId });
+    expect(
+      data.styles.has(
+        getStyleDeclKey({
+          ...unsupportedBreakpointStyle,
+          styleSourceId: newLocalStyleSourceId ?? "",
+        })
+      )
+    ).toBe(false);
+    expect(
+      Array.from(data.styleSources.values()).some(
+        (styleSource) =>
+          styleSource.type === "local" &&
+          styleSource.id !== "localBox" &&
+          styleSource.id !== "unsupportedLocal" &&
+          styleSource.id !== newLocalStyleSourceId
+      )
+    ).toBe(false);
+  });
+
+  test("copies assets and asset props in content mode", () => {
+    const asset = createImageAsset("asset", "Template image", "source_project");
+    const data = getWebstudioDataStub();
+    $registeredComponentMetas.set(
+      new Map([
+        ...defaultMetasMap,
+        [
+          "Item",
+          {
+            label: "Item",
+            icon: "",
+            props: {
+              image: {
+                type: "string",
+                control: "text",
+                required: false,
+                contentMode: true,
+              },
+            },
+          } satisfies WsComponentMeta,
+        ],
+      ])
+    );
+    const fragment = createFragment({
+      children: [{ type: "id", value: "item" }],
+      instances: [createInstance("item", "Item", [])],
+      props: [
+        {
+          id: "image",
+          instanceId: "item",
+          name: "image",
+          type: "asset",
+          value: "asset",
+        },
+      ],
+      assets: [asset],
+    });
+
+    const { newInstanceIds } = insertWebstudioFragmentCopy({
+      data,
+      fragment,
+      availableVariables: [],
+      projectId: "current_project",
+      contentMode: true,
+    });
+    const newInstanceId = newInstanceIds.get("item");
+
+    expect(data.assets.get("asset")).toEqual({
+      ...asset,
+      projectId: "current_project",
+    });
+    expect(Array.from(data.props.values())).toEqual([
+      expect.objectContaining({
+        instanceId: newInstanceId,
+        name: "image",
+        type: "asset",
+        value: "asset",
+      }),
+    ]);
+  });
+
+  test("copies tag-derived content mode props for generic elements", () => {
+    const data = getWebstudioDataStub();
+    const fragment = createFragment({
+      children: [{ type: "id", value: "image" }],
+      instances: [
+        {
+          type: "instance",
+          id: "image",
+          component: elementComponent,
+          tag: "img",
+          children: [],
+        },
+      ],
+      props: [
+        {
+          id: "alt",
+          instanceId: "image",
+          name: "alt",
+          type: "string",
+          value: "Description",
+        },
+        {
+          id: "class",
+          instanceId: "image",
+          name: "class",
+          type: "string",
+          value: "card",
+        },
+      ],
+    });
+
+    const { newInstanceIds } = insertWebstudioFragmentCopy({
+      data,
+      fragment,
+      availableVariables: [],
+      projectId: "current_project",
+      contentMode: true,
+    });
+    const newInstanceId = newInstanceIds.get("image");
+
+    expect(newInstanceId).toBeDefined();
+    expect(Array.from(data.props.values())).toEqual([
+      expect.objectContaining({
+        instanceId: newInstanceId,
+        name: "alt",
+        type: "string",
+        value: "Description",
+      }),
+    ]);
+  });
+
   test("merge breakpoints with existing ones", () => {
     const breakpoints = toMap<Breakpoint>([
       { id: "existing_base", label: "base" },
@@ -1383,6 +1994,40 @@ describe("insert webstudio fragment copy", () => {
       { id: "existing_small", label: "small", minWidth: 768 },
       { id: "new_large", label: "Large", minWidth: 1200 },
     ]);
+  });
+
+  test("reports breakpoint limit merge once when inserting fragment", () => {
+    const breakpoints = toMap<Breakpoint>([
+      { id: "base", label: "base" },
+      { id: "0", label: "320", maxWidth: 320 },
+      { id: "1", label: "480", maxWidth: 480 },
+      { id: "2", label: "768", maxWidth: 768 },
+      { id: "3", label: "1024", maxWidth: 1024 },
+      { id: "4", label: "1280", minWidth: 1280 },
+      { id: "5", label: "1440", minWidth: 1440 },
+      { id: "6", label: "1920", minWidth: 1920 },
+      { id: "7", label: "2560", minWidth: 2560 },
+    ]);
+    const data = getWebstudioDataStub({ breakpoints });
+    let mergeCount = 0;
+
+    insertWebstudioFragmentCopy({
+      data,
+      fragment: {
+        ...emptyFragment,
+        breakpoints: [
+          { id: "new_medium", label: "Medium", minWidth: 1500 },
+          { id: "new_large", label: "Large", minWidth: 1700 },
+        ],
+      },
+      availableVariables: [],
+      projectId: "",
+      onBreakpointLimitMerge: () => {
+        mergeCount += 1;
+      },
+    });
+
+    expect(mergeCount).toBe(1);
   });
 
   // Case 2: Same styles AND same name -> reuse existing token
@@ -3089,6 +3734,119 @@ describe("unwrap instance", () => {
     const parentInstance = instances.get("parent")!;
     expect(parentInstance.children).toEqual([{ type: "id", value: "link" }]);
   });
+
+  test("unwraps selected slot occurrence instead of hidden slot fragment", () => {
+    const { instances, props } = renderData(
+      <$.Body ws:id="body">
+        <$.Slot ws:id="slot1">
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+        <$.Slot ws:id="slot2">
+          {/* same ids */}
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+      </$.Body>
+    );
+
+    const result = unwrapInstanceMutable({
+      instances,
+      props,
+      metas: defaultMetasMap,
+      selectedItem: {
+        instanceSelector: ["div", "fragment", "slot1", "body"],
+        instance: instances.get("div")!,
+      },
+      parentItem: {
+        instanceSelector: ["slot1", "body"],
+        instance: instances.get("slot1")!,
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(instances.get("body")?.children).toEqual([
+      { type: "id", value: "div" },
+      { type: "id", value: "slot2" },
+    ]);
+    expect(instances.has("slot1")).toBe(false);
+    expect(instances.get("slot2")?.children).toEqual([
+      { type: "id", value: "fragment" },
+    ]);
+    expect(instances.get("fragment")?.children).toEqual([
+      { type: "id", value: "div" },
+    ]);
+  });
+
+  test("unwrap command skips hidden slot fragment", () => {
+    const { instances, props } = renderData(
+      <$.Body ws:id="body">
+        <$.Slot ws:id="slot">
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+      </$.Body>
+    );
+    $instances.set(instances);
+    $props.set(props);
+    const pages = createDefaultPages({ rootInstanceId: "body" });
+    $pages.set(pages);
+    $selectedPageId.set(pages.homePageId);
+    selectInstance(["div", "fragment", "slot", "body"]);
+
+    unwrapInstance();
+
+    expect($selectedInstanceSelector.get()).toEqual(["div", "body"]);
+    expect($instances.get().get("body")?.children).toEqual([
+      { type: "id", value: "div" },
+    ]);
+    expect($instances.get().has("slot")).toBe(false);
+    expect($instances.get().has("fragment")).toBe(false);
+  });
+
+  test("unwrap command detaches selected duplicated slot occurrence", () => {
+    const { instances, props } = renderData(
+      <$.Body ws:id="body">
+        <$.Slot ws:id="slot1">
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+        <$.Slot ws:id="slot2">
+          {/* same ids */}
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+      </$.Body>
+    );
+    $instances.set(instances);
+    $props.set(props);
+    const pages = createDefaultPages({ rootInstanceId: "body" });
+    $pages.set(pages);
+    $selectedPageId.set(pages.homePageId);
+    selectInstance(["div", "fragment", "slot1", "body"]);
+
+    unwrapInstance();
+
+    const bodyChildren = $instances.get().get("body")?.children;
+    const unwrappedDivId =
+      bodyChildren?.[0]?.type === "id" ? bodyChildren[0].value : undefined;
+
+    expect(unwrappedDivId).toBeDefined();
+    expect(unwrappedDivId).not.toBe("div");
+    expect($selectedInstanceSelector.get()).toEqual([unwrappedDivId, "body"]);
+    expect($instances.get().get("slot1")).toBeUndefined();
+    expect($instances.get().get("slot2")?.children).toEqual([
+      { type: "id", value: "fragment" },
+    ]);
+    expect($instances.get().get("fragment")?.children).toEqual([
+      { type: "id", value: "div" },
+    ]);
+  });
 });
 
 describe("canUnwrapInstance", () => {
@@ -3346,6 +4104,42 @@ describe("canConvertInstance", () => {
 describe("convertInstance", () => {
   beforeEach(() => {
     $registeredComponentMetas.set(defaultMetasMap);
+  });
+
+  test("detach shared slot children when converting slot", () => {
+    const { instances, props } = renderData(
+      <$.Body ws:id="body">
+        <$.Slot ws:id="slot1">
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+        <$.Slot ws:id="slot2">
+          {/* same ids */}
+          <$.Fragment ws:id="fragment">
+            <ws.element ws:tag="div" ws:id="div"></ws.element>
+          </$.Fragment>
+        </$.Slot>
+      </$.Body>
+    );
+    $instances.set(instances);
+    $props.set(props);
+    selectInstance(["slot1", "body"]);
+
+    convertInstance(elementComponent, "section");
+
+    const convertedSlot = $instances.get().get("slot1");
+    expect(convertedSlot?.component).toBe(elementComponent);
+    expect(convertedSlot?.tag).toBe("section");
+    expect(convertedSlot?.children).not.toEqual(
+      $instances.get().get("slot2")?.children
+    );
+    expect($instances.get().get("slot2")?.children).toEqual([
+      { type: "id", value: "fragment" },
+    ]);
+    expect($instances.get().get("fragment")?.children).toEqual([
+      { type: "id", value: "div" },
+    ]);
   });
 
   test("converts legacy tag to element", () => {

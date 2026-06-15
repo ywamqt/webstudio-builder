@@ -2,6 +2,7 @@ import {
   Pages as PagesSchema,
   type Folder,
   type Page,
+  type PageTemplate,
   type Pages,
   isRootFolder,
   ROOT_FOLDER_ID,
@@ -16,13 +17,21 @@ type LegacyPages = {
   folders?: Folder[];
 };
 
-export type SerializedPages = Omit<Pages, "pages" | "folders"> & {
+export type SerializedPages = Omit<
+  Pages,
+  "pages" | "pageTemplates" | "folders"
+> & {
   pages: Page[];
+  pageTemplates?: PageTemplate[] | Record<PageTemplate["id"], PageTemplate>;
   folders: Folder[];
 };
 
-type MigratablePages = Omit<Pages, "pages" | "folders"> & {
+type MigratablePages = Omit<Pages, "pages" | "pageTemplates" | "folders"> & {
   pages: Page[] | Record<Page["id"], Page> | Map<Page["id"], Page>;
+  pageTemplates?:
+    | PageTemplate[]
+    | Record<PageTemplate["id"], PageTemplate>
+    | Map<PageTemplate["id"], PageTemplate>;
   folders: Folder[] | Record<Folder["id"], Folder> | Map<Folder["id"], Folder>;
 };
 
@@ -91,6 +100,10 @@ export const serializePages = (pages: Pages): SerializedPages => {
     homePageId: parsedPages.homePageId,
     rootFolderId: parsedPages.rootFolderId,
     pages: Array.from(parsedPages.pages.values()),
+    pageTemplates:
+      parsedPages.pageTemplates === undefined
+        ? undefined
+        : Array.from(parsedPages.pageTemplates.values()),
     folders: Array.from(parsedPages.folders.values()),
   };
 };
@@ -103,11 +116,12 @@ export const migratePages = (pages: unknown): Pages => {
   ) {
     const currentPages = pages as Pages;
     const result = PagesSchema.safeParse(currentPages);
-    if (result.success) {
+    if (result.success && currentPages.pageTemplates !== undefined) {
       return currentPages;
     }
     return {
       ...currentPages,
+      pageTemplates: currentPages.pageTemplates ?? new Map(),
       folders: removeOrphanFolderChildren(
         currentPages.pages,
         currentPages.folders
@@ -125,6 +139,10 @@ export const migratePages = (pages: unknown): Pages => {
       homePageId: pages.homePageId,
       rootFolderId: pages.rootFolderId,
       pages: nextPages,
+      pageTemplates:
+        pages.pageTemplates === undefined
+          ? new Map()
+          : toMap<PageTemplate>(pages.pageTemplates),
       folders: removeOrphanFolderChildren(nextPages, nextFolders),
     };
   }
@@ -195,6 +213,7 @@ export const migratePages = (pages: unknown): Pages => {
     homePageId: homePage.id,
     rootFolderId: rootFolder.id,
     pages: nextPages,
+    pageTemplates: new Map(),
     folders: nextFolders,
   };
 };

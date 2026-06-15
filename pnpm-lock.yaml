@@ -190,6 +190,9 @@ importers:
       '@react-aria/utils':
         specifier: ^3.27.0
         version: 3.27.0(react-dom@18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318))(react@18.3.0-canary-14898b6a9-20240318)
+      '@remix-run/express':
+        specifier: ^2.16.5
+        version: 2.16.5(express@4.21.1)(typescript@5.8.2)
       '@remix-run/node':
         specifier: ^2.16.5
         version: 2.16.5(typescript@5.8.2)
@@ -295,6 +298,9 @@ importers:
       '@webstudio-is/trpc-interface':
         specifier: workspace:*
         version: link:../../packages/trpc-interface
+      '@webstudio-is/wsauth':
+        specifier: workspace:*
+        version: link:../../packages/wsauth
       args-tokenizer:
         specifier: ^0.3.0
         version: 0.3.0
@@ -322,6 +328,9 @@ importers:
       entrijs:
         specifier: ^0.0.11
         version: 0.0.11
+      express:
+        specifier: ^4.21.1
+        version: 4.21.1
       fast-deep-equal:
         specifier: ^3.1.3
         version: 3.1.3
@@ -434,6 +443,9 @@ importers:
       '@types/dom-navigation':
         specifier: ^1.0.5
         version: 1.0.5
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.21
       '@types/papaparse':
         specifier: ^5.5.2
         version: 5.5.2
@@ -464,6 +476,9 @@ importers:
       msw:
         specifier: ^2.13.2
         version: 2.13.2(@types/node@22.13.10)(typescript@5.8.2)
+      playwright:
+        specifier: ^1.50.1
+        version: 1.50.1
       react-router-dom:
         specifier: ^6.30.0
         version: 6.30.0(react-dom@18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318))(react@18.3.0-canary-14898b6a9-20240318)
@@ -515,6 +530,9 @@ importers:
       '@webstudio-is/sdk-components-react-router':
         specifier: workspace:*
         version: link:../../packages/sdk-components-react-router
+      '@webstudio-is/wsauth':
+        specifier: workspace:*
+        version: link:../../packages/wsauth
       isbot:
         specifier: ^5.1.25
         version: 5.1.25
@@ -582,6 +600,9 @@ importers:
       '@webstudio-is/sdk-components-react-router':
         specifier: workspace:*
         version: link:../../packages/sdk-components-react-router
+      '@webstudio-is/wsauth':
+        specifier: workspace:*
+        version: link:../../packages/wsauth
       h3:
         specifier: ^1.15.1
         version: 1.15.1
@@ -652,6 +673,9 @@ importers:
       '@webstudio-is/sdk-components-react-router':
         specifier: workspace:*
         version: link:../../packages/sdk-components-react-router
+      '@webstudio-is/wsauth':
+        specifier: workspace:*
+        version: link:../../packages/wsauth
       isbot:
         specifier: ^5.1.25
         version: 5.1.25
@@ -716,6 +740,9 @@ importers:
       '@webstudio-is/sdk-components-react-router':
         specifier: workspace:*
         version: link:../../packages/sdk-components-react-router
+      '@webstudio-is/wsauth':
+        specifier: workspace:*
+        version: link:../../packages/wsauth
       isbot:
         specifier: ^5.1.25
         version: 5.1.25
@@ -768,6 +795,9 @@ importers:
       '@webstudio-is/sdk-components-react-remix':
         specifier: workspace:*
         version: link:../../packages/sdk-components-react-remix
+      '@webstudio-is/wsauth':
+        specifier: workspace:*
+        version: link:../../packages/wsauth
       react:
         specifier: 18.3.0-canary-14898b6a9-20240318
         version: 18.3.0-canary-14898b6a9-20240318
@@ -823,6 +853,9 @@ importers:
       '@webstudio-is/sdk-components-react-remix':
         specifier: workspace:*
         version: link:../../packages/sdk-components-react-remix
+      '@webstudio-is/wsauth':
+        specifier: workspace:*
+        version: link:../../packages/wsauth
       react:
         specifier: 18.3.0-canary-14898b6a9-20240318
         version: 18.3.0-canary-14898b6a9-20240318
@@ -893,6 +926,9 @@ importers:
       '@webstudio-is/sdk-components-react-remix':
         specifier: workspace:*
         version: link:../../packages/sdk-components-react-remix
+      '@webstudio-is/wsauth':
+        specifier: workspace:*
+        version: link:../../packages/wsauth
       isbot:
         specifier: ^5.1.25
         version: 5.1.25
@@ -972,6 +1008,9 @@ importers:
       '@webstudio-is/sdk-components-react-router':
         specifier: workspace:*
         version: link:../../packages/sdk-components-react-router
+      '@webstudio-is/wsauth':
+        specifier: workspace:*
+        version: link:../../packages/wsauth
       isbot:
         specifier: ^5.1.25
         version: 5.1.25
@@ -1219,6 +1258,9 @@ importers:
       '@webstudio-is/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+      '@webstudio-is/wsauth':
+        specifier: workspace:*
+        version: link:../wsauth
       h3:
         specifier: ^1.15.1
         version: 1.15.1
@@ -1498,9 +1540,6 @@ importers:
       react-hot-toast:
         specifier: ^2.5.1
         version: 2.5.1(react-dom@18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318))(react@18.3.0-canary-14898b6a9-20240318)
-      token-transformer:
-        specifier: ^0.0.28
-        version: 0.0.28
       type-fest:
         specifier: ^4.37.0
         version: 4.37.0
@@ -1978,6 +2017,9 @@ importers:
       '@webstudio-is/icons':
         specifier: workspace:*
         version: link:../icons
+      '@webstudio-is/wsauth':
+        specifier: workspace:*
+        version: link:../wsauth
       acorn:
         specifier: ^8.14.1
         version: 8.14.1
@@ -2330,6 +2372,9 @@ importers:
       react-dom:
         specifier: 18.3.0-canary-14898b6a9-20240318
         version: 18.3.0-canary-14898b6a9-20240318(react@18.3.0-canary-14898b6a9-20240318)
+      vitest:
+        specifier: ^3.1.2
+        version: 3.1.2(@types/debug@4.1.12)(@types/node@22.13.10)(@vitest/browser@3.1.2)(jiti@2.4.2)(jsdom@20.0.3)(msw@2.13.2(@types/node@22.13.10)(typescript@5.8.2))(tsx@4.19.3)
 
   packages/sync-client:
     dependencies:
@@ -2413,6 +2458,15 @@ importers:
         version: 3.1.2(@types/debug@4.1.12)(@types/node@22.13.10)(@vitest/browser@3.1.2)(jiti@2.4.2)(jsdom@20.0.3)(msw@2.13.2(@types/node@22.13.10)(typescript@5.8.2))(tsx@4.19.3)
 
   packages/tsconfig: {}
+
+  packages/wsauth:
+    devDependencies:
+      '@webstudio-is/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      vitest:
+        specifier: ^3.1.2
+        version: 3.1.2(@types/debug@4.1.12)(@types/node@22.13.10)(@vitest/browser@3.1.2)(jiti@2.4.2)(jsdom@20.0.3)(msw@2.13.2(@types/node@22.13.10)(typescript@5.8.2))(tsx@4.19.3)
 
 packages:
 
@@ -5615,6 +5669,12 @@ packages:
   '@types/better-sqlite3@7.6.12':
     resolution: {integrity: sha512-fnQmj8lELIj7BSrZQAdBMHEHX8OZLYIHXqAKT1O7tDfLxaINzf00PMjw22r3N/xXh0w/sGHlO6SVaCQ2mj78lg==}
 
+  '@types/body-parser@1.19.6':
+    resolution: {integrity: sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g==}
+
+  '@types/connect@3.4.38':
+    resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
+
   '@types/cookie@0.6.0':
     resolution: {integrity: sha512-4Kh9a6B2bQciAhf7FSuMRRkUWecJgJu9nPnx3yzpsfXX/c50REIqpHY4C82bXP90qrLtXtkDxTZosYO3UpOwlA==}
 
@@ -5636,11 +5696,20 @@ packages:
   '@types/estree@1.0.7':
     resolution: {integrity: sha512-w28IoSUCJpidD/TGviZwwMJckNESJZXFu7NBZ5YJ4mEUnNraUn9Pm8HSZm/jDF1pDWYKspWE7oVphigUPRakIQ==}
 
+  '@types/express-serve-static-core@4.19.8':
+    resolution: {integrity: sha512-02S5fmqeoKzVZCHPZid4b8JH2eM5HzQLZWN2FohQEy/0eXTq8VXZfSN6Pcr3F6N9R/vNrj7cpgbhjie6m/1tCA==}
+
+  '@types/express@4.17.21':
+    resolution: {integrity: sha512-ejlPM315qwLpaQlQDTjPdsUFSc6ZsP4AN6AlWnogPjQ7CVi7PYF3YVz+CY3jE2pwYf7E/7HlDAN0rV2GxTG0HQ==}
+
   '@types/fontkit@2.0.8':
     resolution: {integrity: sha512-wN+8bYxIpJf+5oZdrdtaX04qUuWHcKxcDEgRS9Qm9ZClSHjzEn13SxUC+5eRM+4yXIeTYk8mTzLAWGF64847ew==}
 
   '@types/hast@2.3.4':
     resolution: {integrity: sha512-wLEm0QvaoawEDoTRwzTXp4b4jpwiJDvR5KMnFnVodm3scufTlBOWRD6N1OBf9TZMhjlNsSfcO5V+7AF4+Vy+9g==}
+
+  '@types/http-errors@2.0.5':
+    resolution: {integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==}
 
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
@@ -5650,6 +5719,9 @@ packages:
 
   '@types/mdx@2.0.13':
     resolution: {integrity: sha512-+OWZQfAYyio6YkJb3HLxDrvnx6SWWDbC0zVPfBRzUk0/nqoDyf6dNxQi3eArPe8rJ473nobTMQ/8Zk+LxJ+Yuw==}
+
+  '@types/mime@1.3.5':
+    resolution: {integrity: sha512-/pyBZWSLD2n0dcHE3hq8s8ZvcETHtEuF+3E7XVt0Ig2nvsVQXdghHVcEkIWjy9A0wKfTn97a/PSDYohKIlnP/w==}
 
   '@types/ms@0.7.31':
     resolution: {integrity: sha512-iiUgKzV9AuaEkZqkOLDIvlQiL6ltuZd9tGcW3gwpnX8JbuiuhFlEGmmFXEXkN50Cvq7Os88IY2v0dkDqXYWVgA==}
@@ -5663,6 +5735,12 @@ packages:
   '@types/prop-types@15.7.5':
     resolution: {integrity: sha512-JCB8C6SnDoQf0cNycqd/35A7MjcnK+ZTqE7judS6o7utxUCg6imJg3QK2qzHKszlTjcj2cn+NwMB2i96ubpj7w==}
 
+  '@types/qs@6.15.1':
+    resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
+
+  '@types/range-parser@1.2.7':
+    resolution: {integrity: sha512-hKormJbkJqzQGhziax5PItDUTMAM9uE2XXQmM37dyd4hVM+5aVl7oVxMVUiVQn2oCQFN/LKCZdvSM0pFRqbSmQ==}
+
   '@types/react-dom@18.2.25':
     resolution: {integrity: sha512-o/V48vf4MQh7juIKZU2QGDfli6p1+OOi5oXx36Hffpc9adsHeXjVp8rHuPkjd8VT8sOJ2Zp05HR7CdpGTIUFUA==}
 
@@ -5674,6 +5752,15 @@ packages:
 
   '@types/retry@0.12.2':
     resolution: {integrity: sha512-XISRgDJ2Tc5q4TRqvgJtzsRkFYNJzZrhTdtMoGVBttwzzQJkPnS3WWTFc7kuDRoPtPakl+T+OfdEUjYJj7Jbow==}
+
+  '@types/send@0.17.6':
+    resolution: {integrity: sha512-Uqt8rPBE8SY0RK8JB1EzVOIZ32uqy8HwdxCnoCOsYrvnswqmFZ/k+9Ikidlk/ImhsdvBsloHbAlewb2IEBV/Og==}
+
+  '@types/send@1.2.1':
+    resolution: {integrity: sha512-arsCikDvlU99zl1g69TcAB3mzZPpxgw0UQnaHeC1Nwb015xp8bknZv5rIfri9xTOcMuaVgvabfIRA7PSZVuZIQ==}
+
+  '@types/serve-static@1.15.10':
+    resolution: {integrity: sha512-tRs1dB+g8Itk72rlSI2ZrW6vZg0YrLI81iQSTkMmOqnqCaNr/8Ek4VwWcN5vZgCYWbg/JJSGBlUaYGAOP73qBw==}
 
   '@types/statuses@2.0.6':
     resolution: {integrity: sha512-xMAgYwceFhRA2zY+XbEA7mxYbA093wdiW8Vu6gZPGWy9cmOyU9XesH1tNcEWsKFd5Vzrqx5T3D38PWx1FIIXkA==}
@@ -8986,11 +9073,6 @@ packages:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
 
-  token-transformer@0.0.28:
-    resolution: {integrity: sha512-DINP+5T3ruZwOWMNd5mJMiM3h5YvwZEoRL+NAKZf+e93/5Vy1P0R5eWeaynCWcqprPNm4ceV5CPgjqo1u48big==}
-    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
-    hasBin: true
-
   toml@3.0.0:
     resolution: {integrity: sha512-y/mWCZinnvxjTKYhJ+pYxwD0mRLVvOtdS2Awbgxln6iEnt4rk0yBxeSBHkGJcPucRiG0e55mwWp+g/05rsrd6w==}
 
@@ -9783,7 +9865,7 @@ snapshots:
       '@babel/traverse': 7.25.9
       '@babel/types': 7.27.0
       convert-source-map: 2.0.0
-      debug: 4.4.0
+      debug: 4.4.3
       gensync: 1.0.0-beta.2
       json5: 2.2.3
       semver: 6.3.1
@@ -10031,7 +10113,7 @@ snapshots:
       '@babel/parser': 7.27.0
       '@babel/template': 7.25.9
       '@babel/types': 7.27.0
-      debug: 4.4.0
+      debug: 4.4.3
       globals: 11.12.0
     transitivePeerDependencies:
       - supports-color
@@ -12966,6 +13048,15 @@ snapshots:
     dependencies:
       '@types/node': 22.13.10
 
+  '@types/body-parser@1.19.6':
+    dependencies:
+      '@types/connect': 3.4.38
+      '@types/node': 22.13.10
+
+  '@types/connect@3.4.38':
+    dependencies:
+      '@types/node': 22.13.10
+
   '@types/cookie@0.6.0': {}
 
   '@types/debug@4.1.12':
@@ -12984,6 +13075,20 @@ snapshots:
 
   '@types/estree@1.0.7': {}
 
+  '@types/express-serve-static-core@4.19.8':
+    dependencies:
+      '@types/node': 22.13.10
+      '@types/qs': 6.15.1
+      '@types/range-parser': 1.2.7
+      '@types/send': 1.2.1
+
+  '@types/express@4.17.21':
+    dependencies:
+      '@types/body-parser': 1.19.6
+      '@types/express-serve-static-core': 4.19.8
+      '@types/qs': 6.15.1
+      '@types/serve-static': 1.15.10
+
   '@types/fontkit@2.0.8':
     dependencies:
       '@types/node': 22.13.10
@@ -12992,6 +13097,8 @@ snapshots:
     dependencies:
       '@types/unist': 3.0.0
 
+  '@types/http-errors@2.0.5': {}
+
   '@types/json-schema@7.0.15': {}
 
   '@types/mdast@3.0.15':
@@ -12999,6 +13106,8 @@ snapshots:
       '@types/unist': 2.0.6
 
   '@types/mdx@2.0.13': {}
+
+  '@types/mime@1.3.5': {}
 
   '@types/ms@0.7.31': {}
 
@@ -13012,6 +13121,10 @@ snapshots:
 
   '@types/prop-types@15.7.5': {}
 
+  '@types/qs@6.15.1': {}
+
+  '@types/range-parser@1.2.7': {}
+
   '@types/react-dom@18.2.25':
     dependencies:
       '@types/react': 18.2.79
@@ -13024,6 +13137,21 @@ snapshots:
   '@types/resolve@1.20.6': {}
 
   '@types/retry@0.12.2': {}
+
+  '@types/send@0.17.6':
+    dependencies:
+      '@types/mime': 1.3.5
+      '@types/node': 22.13.10
+
+  '@types/send@1.2.1':
+    dependencies:
+      '@types/node': 22.13.10
+
+  '@types/serve-static@1.15.10':
+    dependencies:
+      '@types/http-errors': 2.0.5
+      '@types/node': 22.13.10
+      '@types/send': 0.17.6
 
   '@types/statuses@2.0.6': {}
 
@@ -13549,7 +13677,6 @@ snapshots:
     dependencies:
       es-errors: 1.3.0
       function-bind: 1.1.2
-    optional: true
 
   call-bind@1.0.2:
     dependencies:
@@ -13939,7 +14066,6 @@ snapshots:
       call-bind-apply-helpers: 1.0.2
       es-errors: 1.3.0
       gopd: 1.2.0
-    optional: true
 
   duplexify@3.7.1:
     dependencies:
@@ -13982,10 +14108,9 @@ snapshots:
 
   es-define-property@1.0.0:
     dependencies:
-      get-intrinsic: 1.2.4
+      get-intrinsic: 1.3.0
 
-  es-define-property@1.0.1:
-    optional: true
+  es-define-property@1.0.1: {}
 
   es-errors@1.3.0: {}
 
@@ -13994,7 +14119,6 @@ snapshots:
   es-object-atoms@1.1.1:
     dependencies:
       es-errors: 1.3.0
-    optional: true
 
   es-set-tostringtag@2.1.0:
     dependencies:
@@ -14013,7 +14137,7 @@ snapshots:
 
   esbuild-register@3.6.0(esbuild@0.25.3):
     dependencies:
-      debug: 4.4.0
+      debug: 4.4.3
       esbuild: 0.25.3
     transitivePeerDependencies:
       - supports-color
@@ -14491,7 +14615,6 @@ snapshots:
       has-symbols: 1.1.0
       hasown: 2.0.3
       math-intrinsics: 1.1.0
-    optional: true
 
   get-nonce@1.0.1: {}
 
@@ -14505,7 +14628,6 @@ snapshots:
     dependencies:
       dunder-proto: 1.0.1
       es-object-atoms: 1.1.1
-    optional: true
 
   get-source@2.0.12:
     dependencies:
@@ -14570,8 +14692,7 @@ snapshots:
     dependencies:
       get-intrinsic: 1.2.1
 
-  gopd@1.2.0:
-    optional: true
+  gopd@1.2.0: {}
 
   graceful-fs@4.2.10: {}
 
@@ -14608,8 +14729,7 @@ snapshots:
 
   has-symbols@1.0.3: {}
 
-  has-symbols@1.1.0:
-    optional: true
+  has-symbols@1.1.0: {}
 
   has-tostringtag@1.0.0:
     dependencies:
@@ -14630,7 +14750,6 @@ snapshots:
   hasown@2.0.3:
     dependencies:
       function-bind: 1.1.2
-    optional: true
 
   hast-util-to-estree@2.2.1:
     dependencies:
@@ -15105,8 +15224,7 @@ snapshots:
       '@babel/runtime': 7.25.0
       remove-accents: 0.5.0
 
-  math-intrinsics@1.1.0:
-    optional: true
+  math-intrinsics@1.1.0: {}
 
   mdast-util-definitions@5.1.2:
     dependencies:
@@ -16654,7 +16772,7 @@ snapshots:
       define-data-property: 1.1.4
       es-errors: 1.3.0
       function-bind: 1.1.2
-      get-intrinsic: 1.2.4
+      get-intrinsic: 1.3.0
       gopd: 1.0.1
       has-property-descriptors: 1.0.2
 
@@ -16698,7 +16816,7 @@ snapshots:
     dependencies:
       call-bind: 1.0.7
       es-errors: 1.3.0
-      get-intrinsic: 1.2.4
+      get-intrinsic: 1.3.0
       object-inspect: 1.13.3
 
   siginfo@2.0.0: {}
@@ -16945,10 +17063,6 @@ snapshots:
       is-number: 7.0.0
 
   toidentifier@1.0.1: {}
-
-  token-transformer@0.0.28:
-    dependencies:
-      yargs: 17.7.2
 
   toml@3.0.0: {}
 
@@ -17296,7 +17410,7 @@ snapshots:
   vite-node@1.6.0(@types/node@22.13.10):
     dependencies:
       cac: 6.7.14
-      debug: 4.4.0
+      debug: 4.4.3
       pathe: 1.1.2
       picocolors: 1.1.1
       vite: 5.4.11(@types/node@22.13.10)

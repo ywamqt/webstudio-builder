@@ -1,16 +1,13 @@
 import { atom, computed, type ReadableAtom } from "nanostores";
 import { useStore } from "@nanostores/react";
-import { useDebouncedCallback } from "use-debounce";
 import {
   type ComponentPropsWithoutRef,
   type ReactNode,
   useRef,
   useState,
-  useEffect,
   useMemo,
   type ComponentProps,
 } from "react";
-import equal from "fast-deep-equal";
 import {
   ariaAttributes,
   attributesByTag,
@@ -27,6 +24,7 @@ import {
   SYSTEM_VARIABLE_ID,
   systemParameter,
 } from "@webstudio-is/sdk";
+import { getContentModePropNamesByTag } from "@webstudio-is/project/content-mode-permissions";
 import type { PropMeta, Prop, Asset } from "@webstudio-is/sdk";
 import { InfoCircleIcon } from "@webstudio-is/icons";
 import {
@@ -175,79 +173,6 @@ export const Label = ({
       )}
     </Flex>
   );
-};
-
-export const useLocalValue = <Type,>(
-  savedValue: Type,
-  onSave: (value: Type) => void,
-  { autoSave = true } = {}
-) => {
-  const isEditingRef = useRef(false);
-  const localValueRef = useRef(savedValue);
-
-  const [_, setRefresh] = useState(0);
-
-  const onSaveRef = useRef(onSave);
-  onSaveRef.current = onSave;
-
-  const save = () => {
-    isEditingRef.current = false;
-    if (equal(localValueRef.current, savedValue) === false) {
-      // To synchronize with setState immediately followed by save
-      onSaveRef.current(localValueRef.current);
-    }
-  };
-
-  const saveDebounced = useDebouncedCallback(save, 500);
-
-  const setLocalValue = (value: Type) => {
-    isEditingRef.current = true;
-    localValueRef.current = value;
-    setRefresh((refresh) => refresh + 1);
-    if (autoSave) {
-      saveDebounced();
-    }
-  };
-
-  // onBlur will not trigger if control is unmounted when props panel is closed or similar.
-  // So we're saving at the unmount
-  // store save in ref to access latest saved value from render
-  // instead of stale one
-  const saveRef = useRef(save);
-  saveRef.current = save;
-  useEffect(() => {
-    // access ref in the moment of unmount
-    return () => saveRef.current();
-  }, []);
-
-  useEffect(() => {
-    // Update local value if saved value changes and control is not in edit mode.
-    if (
-      isEditingRef.current === false &&
-      localValueRef.current !== savedValue
-    ) {
-      localValueRef.current = savedValue;
-      setRefresh((refresh) => refresh + 1);
-    }
-  }, [savedValue]);
-
-  return {
-    /**
-     * Contains:
-     *  - either the latest `savedValue`
-     *  - or the latest value set via `set()`
-     * (whichever changed most recently)
-     */
-    value: localValueRef.current,
-    /**
-     * Should be called on onChange or similar event
-     */
-    set: setLocalValue,
-    /**
-     * Should be called on onBlur or similar event
-     */
-    save,
-  };
 };
 
 type LayoutProps = {
@@ -458,36 +383,9 @@ const attributeToMeta = (attribute: Attribute): PropMeta => {
   throw Error("impossible case");
 };
 
-// Derive tag → content-mode attribute names from registered component metas,
-// so a prop marked `contentMode: true` in a .ws.ts file also surfaces on
-// `ws:element` instances rendering the same tag.
-const $contentModeAttributesByTag = computed(
+const $contentModePropNamesByTag = computed(
   [$registeredComponentMetas],
-  (metas) => {
-    const byTag = new Map<string, Set<string>>();
-    for (const componentMeta of metas.values()) {
-      const tags = Object.keys(componentMeta.presetStyle ?? {});
-      if (tags.length === 0) {
-        continue;
-      }
-      for (const [propName, propMeta] of Object.entries(
-        componentMeta.props ?? {}
-      )) {
-        if (propMeta.contentMode !== true) {
-          continue;
-        }
-        for (const tag of tags) {
-          let names = byTag.get(tag);
-          if (names === undefined) {
-            names = new Set();
-            byTag.set(tag, names);
-          }
-          names.add(propName);
-        }
-      }
-    }
-    return byTag;
-  }
+  getContentModePropNamesByTag
 );
 
 export const $selectedInstancePropsMetas = computed(
@@ -495,13 +393,13 @@ export const $selectedInstancePropsMetas = computed(
     $selectedInstance,
     $registeredComponentMetas,
     $instanceTags,
-    $contentModeAttributesByTag,
+    $contentModePropNamesByTag,
   ],
   (
     instance,
     metas,
     instanceTags,
-    contentModeAttributesByTag
+    contentModePropNamesByTag
   ): Map<string, PropMeta> => {
     if (instance === undefined) {
       return new Map();
@@ -509,11 +407,11 @@ export const $selectedInstancePropsMetas = computed(
     const meta = metas.get(instance.component);
     const tag = instanceTags.get(instance.id);
     const propsMetas = new Map<Prop["name"], PropMeta>();
-    const contentModeAttributes =
-      tag === undefined ? undefined : contentModeAttributesByTag.get(tag);
+    const contentModePropNames =
+      tag === undefined ? undefined : contentModePropNamesByTag.get(tag);
     const toAttributeMeta = (attribute: Attribute): PropMeta => {
       const propMeta = attributeToMeta(attribute);
-      if (contentModeAttributes?.has(attribute.name)) {
+      if (contentModePropNames?.has(attribute.name)) {
         return { ...propMeta, contentMode: true };
       }
       return propMeta;
