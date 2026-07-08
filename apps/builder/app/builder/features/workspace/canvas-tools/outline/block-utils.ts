@@ -1,18 +1,21 @@
 import type { Instance, Instances, WebstudioFragment } from "@webstudio-is/sdk";
+import { findAllEditableInstanceSelector } from "~/shared/instance-utils/lookup";
+import {
+  getWebstudioData,
+  updateWebstudioData,
+} from "~/shared/instance-utils/data";
+import { insertInstanceChildrenMutable } from "~/shared/instance-utils/insert";
+import {
+  detectFragmentTokenConflicts,
+  extractWebstudioFragment,
+  insertWebstudioFragmentCopy,
+} from "@webstudio-is/project-build/runtime/fragment";
 import { blockTemplateComponent } from "@webstudio-is/sdk";
 import { shallowEqual } from "shallow-equal";
 import { selectInstance } from "~/shared/nano-states";
 import { builderApi } from "~/shared/builder-api";
-import { findAvailableVariables } from "~/shared/data-variables";
-import {
-  extractWebstudioFragment,
-  findAllEditableInstanceSelector,
-  getWebstudioData,
-  insertInstanceChildrenMutable,
-  insertWebstudioFragmentCopy,
-  updateWebstudioData,
-  detectFragmentTokenConflicts,
-} from "~/shared/instance-utils";
+import { findAvailableVariables } from "@webstudio-is/project-build/runtime/data";
+import { isFragmentContentModeCopyableProp } from "~/shared/content-mode-copy-policy";
 import {
   $registeredComponentMetas,
   $isContentMode,
@@ -22,7 +25,10 @@ import {
 } from "~/shared/nano-states";
 import { $instances } from "~/shared/sync/data-stores";
 import { $project } from "~/shared/sync/data-stores";
-import type { DroppableTarget, InstanceSelector } from "~/shared/tree-utils";
+import type {
+  DroppableTarget,
+  InstanceSelector,
+} from "~/shared/instance-utils/tree";
 
 const getInsertionIndex = (
   anchor: InstanceSelector,
@@ -74,17 +80,19 @@ const getInsertionIndex = (
 
 const getTemplateTokenConflicts = ({
   fragment,
+  targetData,
   contentMode,
   detect = detectFragmentTokenConflicts,
 }: {
   fragment: WebstudioFragment;
+  targetData: ReturnType<typeof getWebstudioData>;
   contentMode: boolean;
   detect?: typeof detectFragmentTokenConflicts;
 }) => {
   if (contentMode) {
     return [];
   }
-  return detect({ fragment });
+  return detect({ fragment, targetData });
 };
 
 export const __testing__ = {
@@ -127,9 +135,11 @@ export const insertListItemAt = (listItemSelector: InstanceSelector) => {
     listItemSelector[0]
   );
 
-  fragment.instances = structuredClone(fragment.instances);
-  fragment.instances.splice(1);
-  fragment.instances[0].children = [];
+  const [listItemInstance] = fragment.instances;
+  if (listItemInstance === undefined) {
+    return;
+  }
+  fragment.instances = [{ ...listItemInstance, children: [] }];
 
   updateWebstudioData((data) => {
     const { newInstanceIds } = insertWebstudioFragmentCopy({
@@ -200,7 +210,11 @@ export const insertTemplateAt = async (
 
   try {
     const contentMode = $isContentMode.get();
-    const conflicts = getTemplateTokenConflicts({ fragment, contentMode });
+    const conflicts = getTemplateTokenConflicts({
+      fragment,
+      targetData: getWebstudioData(),
+      contentMode,
+    });
     const conflictResolution =
       conflicts.length > 0
         ? await builderApi.showTokenConflictDialog(conflicts)
@@ -216,6 +230,8 @@ export const insertTemplateAt = async (
         }),
         projectId: project.id,
         conflictResolution,
+        metas: $registeredComponentMetas.get(),
+        contentModeCopyableProp: isFragmentContentModeCopyableProp,
         contentMode,
       });
       const newRootInstanceId = newInstanceIds.get(fragment.instances[0].id);

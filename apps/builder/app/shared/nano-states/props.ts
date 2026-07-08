@@ -26,12 +26,12 @@ import { $instances } from "../sync/data-stores";
 import { $dataSources, $props, $assets, $resources } from "../sync/data-stores";
 import { $uploadingFilesDataStore, $memoryProps, $isPreviewMode } from "./misc";
 import { $pages } from "../sync/data-stores";
-import type { InstanceSelector } from "../tree-utils";
+import type { InstanceSelector } from "../instance-utils/tree";
 import { $dataSourceVariables } from "./variables";
 import { uploadingFileDataToAsset } from "~/builder/shared/assets/asset-utils";
 import { $selectedPage } from "./pages";
 import { getInstanceKey } from "./instances";
-import { computeExpression } from "../data-variables";
+import { computeExpression } from "@webstudio-is/project-build/runtime/data";
 import { $currentSystem } from "../system";
 import {
   $resourcesCache,
@@ -316,9 +316,11 @@ export const $propValuesByInstanceSelector = computed(
         const originalData = propValues.get("data");
         const itemVariableId = parameters.get("item");
         const itemKeyVariableId = parameters.get("itemKey");
-        if (itemVariableId !== undefined && originalData) {
+        if (originalData) {
           for (const [key, value] of getCollectionEntries(originalData)) {
-            variableValues.set(itemVariableId, value);
+            if (itemVariableId !== undefined) {
+              variableValues.set(itemVariableId, value);
+            }
             if (itemKeyVariableId !== undefined) {
               variableValues.set(itemKeyVariableId, key);
             }
@@ -520,18 +522,19 @@ export const $variableValuesByInstanceSelector = computed(
         const originalData = propValues.get("data");
         const itemVariableId = parameters.get("item");
         const itemKeyVariableId = parameters.get("itemKey");
-        if (itemVariableId === undefined) {
-          return;
-        }
         // prevent accessing item from collection
-        variableValues.delete(itemVariableId);
+        if (itemVariableId !== undefined) {
+          variableValues.delete(itemVariableId);
+        }
         if (itemKeyVariableId !== undefined) {
           variableValues.delete(itemKeyVariableId);
         }
         if (originalData) {
           for (const [key, value] of getCollectionEntries(originalData)) {
             const itemVariableValues = new Map(variableValues);
-            itemVariableValues.set(itemVariableId, value);
+            if (itemVariableId !== undefined) {
+              itemVariableValues.set(itemVariableId, value);
+            }
             if (itemKeyVariableId !== undefined) {
               itemVariableValues.set(itemKeyVariableId, key);
             }

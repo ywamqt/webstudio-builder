@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { atom, computed } from "nanostores";
+import { atom } from "nanostores";
 import { useStore } from "@nanostores/react";
 import { toast } from "@webstudio-is/design-system";
 import {
@@ -24,7 +24,11 @@ import {
   $resources,
 } from "~/shared/sync/data-stores";
 import { serverSyncStore } from "~/shared/sync/sync-stores";
-import { findVariableUsagesByInstance } from "~/shared/data-variables";
+import {
+  findVariableUsagesByInstance,
+  validateDataVariableNameWithSources,
+} from "@webstudio-is/project-build/runtime/data";
+import { type DataVariableNameError } from "@webstudio-is/project-build/runtime/data";
 
 const $isDeleteUnusedDataVariablesDialogOpen = atom(false);
 
@@ -32,28 +36,18 @@ export const openDeleteUnusedDataVariablesDialog = () => {
   $isDeleteUnusedDataVariablesDialogOpen.set(true);
 };
 
-export type DataVariableError = {
-  type: "required" | "duplicate";
-  message: string;
-};
+export type DataVariableError = DataVariableNameError;
 
-/**
- * Computed store that tracks which instances use each variable
- * Returns a Map of variable ID to Set of instance IDs
- */
-export const $usedVariablesInInstances = computed(
-  [$pages, $instances, $props, $dataSources, $resources],
-  (pages, instances, props, dataSources, resources) => {
-    return findVariableUsagesByInstance({
-      startingInstanceId: ROOT_INSTANCE_ID,
-      pages,
-      instances,
-      props,
-      dataSources,
-      resources,
-    });
-  }
-);
+const getUsedVariablesInInstances = () => {
+  return findVariableUsagesByInstance({
+    startingInstanceId: ROOT_INSTANCE_ID,
+    pages: $pages.get(),
+    instances: $instances.get(),
+    props: $props.get(),
+    dataSources: $dataSources.get(),
+    resources: $resources.get(),
+  });
+};
 
 type DeleteDataVariableDialogProps = {
   variable?: { id: DataSource["id"]; name: string; usages: number };
@@ -112,7 +106,7 @@ export const DeleteDataVariableDialog = ({
 
 export const deleteUnusedDataVariables = () => {
   const dataSources = $dataSources.get();
-  const usedVariablesInInstances = $usedVariablesInInstances.get();
+  const usedVariablesInInstances = getUsedVariablesInInstances();
   const unusedVariableIds: DataSource["id"][] = [];
 
   for (const dataSource of dataSources.values()) {
@@ -128,19 +122,11 @@ export const deleteUnusedDataVariables = () => {
     return 0;
   }
 
-  serverSyncStore.createTransaction(
-    [$dataSources, $resources],
-    (dataSources, resources) => {
-      for (const variableId of unusedVariableIds) {
-        const dataSource = dataSources.get(variableId);
-        // Cleanup resource when variable is deleted
-        if (dataSource?.type === "resource") {
-          resources.delete(dataSource.resourceId);
-        }
-        dataSources.delete(variableId);
-      }
+  serverSyncStore.createTransaction([$dataSources], (dataSources) => {
+    for (const variableId of unusedVariableIds) {
+      dataSources.delete(variableId);
     }
-  );
+  });
 
   return unusedVariableIds.length;
 };
@@ -150,13 +136,6 @@ export const validateDataVariableName = (
   variableId?: DataSource["id"],
   scopeInstanceId?: Instance["id"]
 ): DataVariableError | undefined => {
-  if (name.trim().length === 0) {
-    return {
-      type: "required",
-      message: "Variable name is required",
-    };
-  }
-
   const dataSources = $dataSources.get();
   const currentVariable = variableId ? dataSources.get(variableId) : undefined;
   const actualScopeInstanceId =
@@ -164,20 +143,12 @@ export const validateDataVariableName = (
     (currentVariable?.type === "variable"
       ? currentVariable.scopeInstanceId
       : undefined);
-
-  for (const dataSource of dataSources.values()) {
-    if (
-      dataSource.type === "variable" &&
-      dataSource.scopeInstanceId === actualScopeInstanceId &&
-      dataSource.name === name &&
-      dataSource.id !== variableId
-    ) {
-      return {
-        type: "duplicate",
-        message: "Name is already used by another variable on this instance",
-      };
-    }
-  }
+  return validateDataVariableNameWithSources({
+    dataSources: dataSources.values(),
+    name,
+    variableId,
+    scopeInstanceId: actualScopeInstanceId,
+  });
 };
 
 export const renameDataVariable = (
@@ -280,7 +251,6 @@ export const RenameDataVariableDialog = ({
 
 export const DeleteUnusedDataVariablesDialog = () => {
   const open = useStore($isDeleteUnusedDataVariablesDialogOpen);
-  const usedVariablesInInstances = useStore($usedVariablesInInstances);
   const dataSources = useStore($dataSources);
 
   const handleClose = () => {
@@ -288,11 +258,14 @@ export const DeleteUnusedDataVariablesDialog = () => {
   };
 
   const unusedVariables: Array<{ id: string; name: string }> = [];
-  for (const dataSource of dataSources.values()) {
-    if (dataSource.type === "variable") {
-      const usages = usedVariablesInInstances.get(dataSource.id);
-      if (usages === undefined || usages.size === 0) {
-        unusedVariables.push({ id: dataSource.id, name: dataSource.name });
+  if (open) {
+    const usedVariablesInInstances = getUsedVariablesInInstances();
+    for (const dataSource of dataSources.values()) {
+      if (dataSource.type === "variable") {
+        const usages = usedVariablesInInstances.get(dataSource.id);
+        if (usages === undefined || usages.size === 0) {
+          unusedVariables.push({ id: dataSource.id, name: dataSource.name });
+        }
       }
     }
   }

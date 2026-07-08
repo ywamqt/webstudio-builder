@@ -3,14 +3,23 @@ import { setEnv } from "@webstudio-is/feature-flags";
 import { renderData, ws } from "@webstudio-is/template";
 import { createDefaultPages } from "@webstudio-is/project-build";
 import type { Project } from "@webstudio-is/project";
+import { coreMetas } from "@webstudio-is/sdk";
+import * as defaultMetas from "@webstudio-is/sdk-components-react/metas";
 import { registerContainers } from "../sync/sync-stores";
 import { $instances } from "~/shared/sync/data-stores";
 import { $pages, $project } from "~/shared/sync/data-stores";
-import { $selectedPageId, $selectedInstanceSelector } from "../nano-states";
+import {
+  $registeredComponentMetas,
+  $selectedPageId,
+  selectInstance,
+} from "../nano-states";
 import { html } from "./plugin-html";
 
 setEnv("*");
 registerContainers();
+$registeredComponentMetas.set(
+  new Map(Object.entries({ ...defaultMetas, ...coreMetas }))
+);
 
 test("paste html fragment", async () => {
   const data = renderData(
@@ -24,7 +33,7 @@ test("paste html fragment", async () => {
     createDefaultPages({ rootInstanceId: "bodyId", homePageId: "pageId" })
   );
   $selectedPageId.set("pageId");
-  $selectedInstanceSelector.set(["divId", "bodyId"]);
+  selectInstance(["divId", "bodyId"]);
   expect(
     await html.onPaste?.(`
       <section>
@@ -62,7 +71,7 @@ test("ignore html without any tags", async () => {
     createDefaultPages({ rootInstanceId: "bodyId", homePageId: "pageId" })
   );
   $selectedPageId.set("pageId");
-  $selectedInstanceSelector.set(["divId", "bodyId"]);
+  selectInstance(["divId", "bodyId"]);
   expect(await html.onPaste?.(`It works`)).toEqual(false);
   expect($instances.get()).toEqual(data.instances);
 });
@@ -79,7 +88,7 @@ test("skip whitespace-only text nodes between element siblings", async () => {
     createDefaultPages({ rootInstanceId: "bodyId", homePageId: "pageId" })
   );
   $selectedPageId.set("pageId");
-  $selectedInstanceSelector.set(["divId", "bodyId"]);
+  selectInstance(["divId", "bodyId"]);
 
   // Regression test: whitespace between elements should not create separate text nodes
   // but the space should be preserved as part of one of the adjacent span instances

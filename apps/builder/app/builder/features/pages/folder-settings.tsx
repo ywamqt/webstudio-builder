@@ -17,12 +17,17 @@ import {
 } from "@webstudio-is/design-system";
 import { InfoCircleIcon, TrashIcon } from "@webstudio-is/icons";
 import {
-  Folder,
-  Pages,
+  type Folder,
+  folder,
+  type Pages,
   ROOT_FOLDER_ID,
   findParentFolderByChildId,
   getFolderById,
 } from "@webstudio-is/sdk";
+import {
+  createFolderValue,
+  isSlugAvailable,
+} from "@webstudio-is/project-build/runtime/pages";
 import { nanoid } from "nanoid";
 import { useState, type FocusEventHandler } from "react";
 import slugify from "slugify";
@@ -32,16 +37,19 @@ import { $pages } from "~/shared/sync/data-stores";
 import { $isDesignMode } from "~/shared/nano-states";
 import { serverSyncStore } from "~/shared/sync/sync-stores";
 import { Form } from "./form";
-import { isSlugAvailable, registerFolderChildMutable } from "./page-utils";
+import {
+  insertFolderMutable,
+  updateFolderFieldsMutable,
+} from "~/shared/page-utils/tree";
 import { useDraftValue } from "~/builder/shared/use-draft-value";
 import { copyFolder } from "~/shared/copy-paste/copy-paste";
 import { PageItemActionsDropdown } from "./page-item-actions";
 
-const Values = Folder.pick({ name: true, slug: true }).extend({
+const folderValues = folder.pick({ name: true, slug: true }).extend({
   parentFolderId: z.string(),
 });
 
-type Values = z.infer<typeof Values>;
+type Values = z.infer<typeof folderValues>;
 
 type FieldName = keyof Values;
 
@@ -64,7 +72,7 @@ const validateValues = (
   values: Values,
   folderId?: Folder["id"]
 ): Errors => {
-  const parsedResult = Values.safeParse(values);
+  const parsedResult = folderValues.safeParse(values);
   const errors: Errors = {};
   if (parsedResult.success === false) {
     return parsedResult.error.formErrors.fieldErrors;
@@ -294,16 +302,15 @@ const createFolder = (folderId: Folder["id"], values: Values) => {
     if (pages === undefined) {
       return;
     }
-    pages.folders.set(folderId, {
-      id: folderId,
-      name: values.name,
-      slug: values.slug,
-      children: [],
-    } satisfies Folder);
-    const parentFolder =
-      getFolderById(pages, values.parentFolderId) ??
-      getFolderById(pages, pages.rootFolderId);
-    parentFolder?.children.push(folderId);
+    insertFolderMutable({
+      pages,
+      folder: createFolderValue({
+        folderId,
+        name: values.name,
+        slug: values.slug,
+      }),
+      parentFolderId: values.parentFolderId,
+    });
   });
 };
 
@@ -316,15 +323,7 @@ const updateFolder = (folderId: Folder["id"], values: Partial<Values>) => {
     if (folder === undefined || folderId === pages.rootFolderId) {
       return;
     }
-    if (values.name !== undefined) {
-      folder.name = values.name;
-    }
-    if (values.slug !== undefined) {
-      folder.slug = values.slug;
-    }
-    if (values.parentFolderId !== undefined) {
-      registerFolderChildMutable(pages, folderId, values.parentFolderId);
-    }
+    updateFolderFieldsMutable({ folder, folderId, pages, values });
   });
 };
 

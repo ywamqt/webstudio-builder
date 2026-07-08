@@ -1,11 +1,10 @@
-import { z } from "zod";
 import { json, type ActionFunctionArgs } from "@remix-run/server-runtime";
-import { uploadFile } from "@webstudio-is/asset-uploader/index.server";
 import {
-  isAllowedMimeCategory,
-  RESIZABLE_IMAGE_MIME_TYPES,
-  ALLOWED_FILE_TYPES,
-} from "@webstudio-is/sdk";
+  createUploadName,
+  uploadFile,
+  type UploadErrorCleanup,
+} from "@webstudio-is/asset-uploader/index.server";
+import { isAssetFileName } from "@webstudio-is/protocol";
 import type { AssetActionResponse } from "~/builder/shared/assets";
 import { createAssetClient } from "~/shared/asset-client";
 import { createContext } from "~/shared/context.server";
@@ -13,128 +12,151 @@ import { preventCrossOriginCookie } from "~/services/no-cross-origin-cookie";
 import { checkCsrf } from "~/services/csrf-session.server";
 import { parseError } from "~/shared/error/error-parse";
 import { privateNoStoreResponseHeaders } from "~/services/cache-control.server";
+import { assertApiProjectPermit } from "~/services/api-permits.server";
+import {
+  getAssetInfoFallback,
+  getBrowserAssetFormat,
+  getBrowserUploadBody,
+  parseAssetType,
+  type AssetInfoFallback,
+} from "~/services/asset-upload.server";
 
-const UrlBody = z.object({
-  url: z.string(),
-});
+const createAssetUploadResponse = async ({
+  body,
+  context,
+  name,
+  assetInfoFallback,
+  onUploadError,
+}: {
+  body: ReadableStream<Uint8Array>;
+  context: Awaited<ReturnType<typeof createContext>>;
+  name: string;
+  assetInfoFallback: AssetInfoFallback;
+  onUploadError?: UploadErrorCleanup;
+}) => {
+  const asset = await uploadFile(
+    name,
+    body,
+    createAssetClient(),
+    context,
+    assetInfoFallback,
+    onUploadError
+  );
+  return json({ uploadedAssets: [asset] } satisfies AssetActionResponse, {
+    headers: privateNoStoreResponseHeaders,
+  });
+};
+
+const createApiUploadErrorCleanup =
+  (assetId: string, projectId: string): UploadErrorCleanup =>
+  async (name, context) => {
+    const deleteAsset = await context.postgrest.client
+      .from("Asset")
+      .delete()
+      .eq("id", assetId)
+      .eq("projectId", projectId);
+    if (deleteAsset.error) {
+      throw deleteAsset.error;
+    }
+    const deleteFile = await context.postgrest.client
+      .from("File")
+      .delete()
+      .eq("name", name);
+    if (deleteFile.error) {
+      throw deleteFile.error;
+    }
+  };
 
 export const action = async (props: ActionFunctionArgs) => {
   preventCrossOriginCookie(props.request);
-  await checkCsrf(props.request);
 
   const { request, params } = props;
-
-  // await new Promise((resolve) => setTimeout(resolve, 20000));
 
   if (params.name === undefined) {
     throw new Error("Name is undefined");
   }
 
+  const url = new URL(request.url);
+  const projectId = url.searchParams.get("projectId");
+  const rawAssetType = url.searchParams.get("type");
+  const isApiUpload = projectId !== null || rawAssetType !== null;
+
+  if (isApiUpload === false) {
+    await checkCsrf(request);
+  }
+
   try {
-    if (request.method === "POST" && request.body !== null) {
-      let body = request.body;
+    if (request.method !== "POST" || request.body === null) {
+      return json(
+        { errors: "Method not allowed" } satisfies AssetActionResponse,
+        { status: 405, headers: privateNoStoreResponseHeaders }
+      );
+    }
 
-      const contentType = request.headers.get("Content-Type");
+    const assetType = parseAssetType(rawAssetType);
 
-      // Check if this is a request to download from URL (has url field in JSON body)
-      // vs uploading a JSON file directly (JSON file content in body)
-      if (contentType?.includes("application/json")) {
-        const jsonBody = await request.json();
-        const urlParse = UrlBody.safeParse(jsonBody);
-
-        // Only fetch from URL if the body has a valid url field
-        if (urlParse.success) {
-          const { url } = urlParse.data;
-
-          const imageRequest = await fetch(url, {
-            method: "GET",
-            headers: {
-              Accept: RESIZABLE_IMAGE_MIME_TYPES.join(","),
-            },
-          });
-
-          if (false === imageRequest.ok) {
-            const error = await imageRequest.text();
-            const errors = `An error occurred while fetching the image at ${url}: ${error.slice(0, 500)}`;
-            throw new Error(errors);
-          }
-
-          if (imageRequest.body === null) {
-            throw new Error(
-              `An error occurred while fetching the image at ${url}: Image body is null`
-            );
-          }
-
-          body = imageRequest.body;
-        } else {
-          // This is a JSON file being uploaded, use the JSON content as body
-          body = new Blob([JSON.stringify(jsonBody)], {
-            type: "application/json",
-          }).stream();
-        }
+    if (isApiUpload) {
+      if (isAssetFileName(params.name) === false) {
+        throw new Error("Asset name is invalid");
       }
-
-      const url = new URL(request.url);
-
-      // Get file extension from filename
-      const fileExtension = params.name.split(".").pop()?.toLowerCase();
-
-      // Use the file extension to determine the correct MIME type
-      // This handles cases where browsers send legacy MIME types (e.g., application/font-woff instead of font/woff)
-      const correctMimeType = fileExtension
-        ? ALLOWED_FILE_TYPES[fileExtension as keyof typeof ALLOWED_FILE_TYPES]
-        : contentType?.split(";")[0];
-
-      const contentTypeArr = correctMimeType?.split("/") ?? [];
-
-      // Validate MIME type against allowed categories
-      const mimeCategory = contentTypeArr[0];
-      if (
-        mimeCategory &&
-        correctMimeType &&
-        !isAllowedMimeCategory(mimeCategory)
-      ) {
-        throw new Error(`MIME type "${mimeCategory}/*" is not allowed`);
+      if (projectId === null) {
+        throw new Error("Project id is required");
       }
-
-      const format =
-        contentTypeArr[0] === "video" ? contentTypeArr[1] : undefined;
-
-      const width = url.searchParams.has("width")
-        ? Number.parseInt(url.searchParams.get("width")!, 10)
-        : undefined;
-      const height = url.searchParams.has("height")
-        ? Number.parseInt(url.searchParams.get("height")!, 10)
-        : undefined;
-
-      const assetInfoFallback =
-        height !== undefined && width !== undefined && format !== undefined
-          ? { width, height, format }
-          : undefined;
+      const assetId = url.searchParams.get("assetId");
+      if (assetId === null) {
+        throw new Error("Asset id is required");
+      }
+      if (assetType === undefined) {
+        throw new Error("Asset type is invalid");
+      }
+      const assetInfoFallback = getAssetInfoFallback({
+        format:
+          assetType === "image"
+            ? (url.searchParams.get("format") ?? undefined)
+            : undefined,
+        searchParams: url.searchParams,
+      });
 
       const context = await createContext(request);
-      const asset = await uploadFile(
-        params.name,
-        body,
-        createAssetClient(),
-        context,
-        assetInfoFallback
+      await assertApiProjectPermit(context, projectId, "build");
+      const uploadName = await createUploadName(
+        {
+          assetId,
+          projectId,
+          type: assetType,
+          filename: params.name,
+        },
+        context
       );
-      return json({ uploadedAssets: [asset] } satisfies AssetActionResponse, {
-        headers: privateNoStoreResponseHeaders,
+      return await createAssetUploadResponse({
+        body: request.body,
+        context,
+        name: uploadName,
+        assetInfoFallback,
+        onUploadError: createApiUploadErrorCleanup(assetId, projectId),
       });
     }
+
+    const contentType = request.headers.get("Content-Type");
+    const body = await getBrowserUploadBody(request, contentType);
+    const format = getBrowserAssetFormat({ contentType, name: params.name });
+    const assetInfoFallback = getAssetInfoFallback({
+      format,
+      searchParams: url.searchParams,
+    });
+
+    const context = await createContext(request);
+    return await createAssetUploadResponse({
+      body,
+      context,
+      name: params.name,
+      assetInfoFallback,
+    });
   } catch (error) {
     console.error(error);
-
     return json(
       { errors: parseError(error).message } satisfies AssetActionResponse,
       { headers: privateNoStoreResponseHeaders }
     );
   }
-
-  return json({ errors: "Method not allowed" } satisfies AssetActionResponse, {
-    status: 405,
-    headers: privateNoStoreResponseHeaders,
-  });
 };

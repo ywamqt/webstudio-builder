@@ -1,10 +1,5 @@
 import { z } from "zod";
-import { nanoid } from "nanoid";
 import * as projectApi from "@webstudio-is/project/index.server";
-import {
-  createProductionBuild,
-  unpublishBuild,
-} from "@webstudio-is/project-build/index.server";
 import {
   router,
   procedure,
@@ -13,9 +8,18 @@ import {
   getProjectOwnerId,
   AuthorizationError,
 } from "@webstudio-is/trpc-interface/index.server";
-import { Templates } from "@webstudio-is/sdk";
+import { templates } from "@webstudio-is/sdk";
 import { db } from "../db";
 import { isDomainUsingCloudflareNameservers } from "../rdap";
+import {
+  getVerifiedPublishDomains,
+  createProjectDomainResult,
+  deleteProjectDomainResult,
+  publishProject,
+  publishStaticProject,
+  unpublishProjectDomains,
+  verifyProjectDomainResult,
+} from "../project-domain-api.server";
 
 export const domainRouter = router({
   getEntriToken: procedure.query(async ({ ctx }) => {
@@ -69,94 +73,30 @@ export const domainRouter = router({
         z.object({
           projectId: z.string(),
           destination: z.literal("static"),
-          templates: z.array(Templates),
+          templates: z.array(templates),
         }),
       ])
     )
     .mutation(async ({ input, ctx }) => {
       try {
-        const project = await projectApi.loadById(input.projectId, ctx);
-
-        const name = `${project.id}-${nanoid()}.zip`;
-
-        const domains: string[] = [];
-
-        let hasCustomDomain = false;
-
         if (input.destination === "saas") {
-          const currentProjectDomains = project.domainsVirtual;
-
-          if (input.domains.includes(project.domain)) {
-            domains.push(project.domain);
-          }
-
-          domains.push(
-            ...input.domains.filter((domain) =>
-              currentProjectDomains.some(
-                (projectDomain) =>
-                  projectDomain.domain === domain &&
-                  projectDomain.status === "ACTIVE" &&
-                  projectDomain.verified
-              )
-            )
-          );
-
-          hasCustomDomain = currentProjectDomains.some(
-            (projectDomain) =>
-              projectDomain.status === "ACTIVE" && projectDomain.verified
-          );
+          const project = await projectApi.loadById(input.projectId, ctx);
+          const domains = getVerifiedPublishDomains(project, input.domains);
+          await publishProject({ project, domains }, ctx);
+          return { success: true as const };
         }
 
-        const build = await createProductionBuild(
+        const result = await publishStaticProject(
           {
             projectId: input.projectId,
-            deployment:
-              input.destination === "saas"
-                ? {
-                    destination: input.destination,
-                    domains: domains,
-                    assetsDomain: project.domain,
-                    excludeWstdDomainFromSearch: hasCustomDomain,
-                  }
-                : {
-                    destination: input.destination,
-                    name,
-                    assetsDomain: project.domain,
-                    templates: input.templates,
-                  },
+            templates: input.templates,
           },
           ctx
         );
 
-        const { deploymentTrpc, env } = ctx.deployment;
-
-        if (env.BUILDER_ORIGIN === undefined) {
-          throw new Error("Missing env.BUILDER_ORIGIN");
+        if (result.success) {
+          return { success: true as const, name: result.name };
         }
-
-        const result = await deploymentTrpc.publish.mutate({
-          // used to load build data from the builder with build.loadProjectDataByBuildId
-          builderOrigin: env.BUILDER_ORIGIN,
-          githubSha: env.GITHUB_SHA,
-          buildId: build.id,
-          domains: domains,
-          // preview support
-          branchName: env.GITHUB_REF_NAME,
-          destination: input.destination,
-          // action log helper (not used for deployment, but for action logs readablity)
-          logProjectName: `${project.title} - ${project.id}`,
-        });
-
-        if (input.destination === "static" && result.success) {
-          return { success: true as const, name };
-        }
-
-        /* --- Added by m8jj --- */
-        await ctx.postgrest.client
-            .from("Build")
-            .update({ publishStatus: result.success === true ? "PUBLISHED" : "FAILED" })
-            .eq("id", build.id);
-        /* ------ */
 
         return result;
       } catch (error) {
@@ -175,30 +115,13 @@ export const domainRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
-        const { deploymentTrpc, env } = ctx.deployment;
-
-        // Call deployment service to delete the worker for this domain
-        const result = await deploymentTrpc.unpublish.mutate({
-          domain: input.domain,
-        });
-
-        // Extract subdomain for DB lookup (strip publisher host suffix)
-        // e.g., "myproject.wstd.work" → "myproject", "custom.com" → "custom.com"
-        const dbDomain = input.domain.replace(`.${env.PUBLISHER_HOST}`, "");
-
-        // Always unpublish in DB regardless of worker deletion result
-        await unpublishBuild(
-          { projectId: input.projectId, domain: dbDomain },
+        await unpublishProjectDomains(
+          {
+            projectId: input.projectId,
+            domains: [input.domain],
+          },
           ctx
         );
-
-        // If worker deletion failed (and not NOT_IMPLEMENTED), return error
-        if (result.success === false && result.error !== "NOT_IMPLEMENTED") {
-          return {
-            success: false,
-            message: `Failed to unpublish ${input.domain}: ${result.error}`,
-          };
-        }
 
         return {
           success: true,
@@ -251,7 +174,7 @@ export const domainRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
-        return await db.create(
+        return await createProjectDomainResult(
           {
             projectId: input.projectId,
             domain: input.domain,
@@ -272,7 +195,7 @@ export const domainRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
-        return await db.verify(
+        return await verifyProjectDomainResult(
           {
             projectId: input.projectId,
             domainId: input.domainId,
@@ -292,7 +215,7 @@ export const domainRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
-        return await db.remove(
+        return await deleteProjectDomainResult(
           {
             projectId: input.projectId,
             domainId: input.domainId,

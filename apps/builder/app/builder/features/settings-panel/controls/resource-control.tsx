@@ -19,7 +19,11 @@ import {
   NestedInputButton,
   theme,
 } from "@webstudio-is/design-system";
-import { isLiteralExpression, Resource, type Prop } from "@webstudio-is/sdk";
+import {
+  isLiteralExpression,
+  type Resource,
+  type Prop,
+} from "@webstudio-is/sdk";
 import {
   BindingControl,
   BindingPopover,
@@ -29,8 +33,12 @@ import {
 import { $variableValuesByInstanceSelector } from "~/shared/nano-states";
 import { $dataSources } from "~/shared/sync/data-stores";
 import { $props, $resources } from "~/shared/sync/data-stores";
-import { computeExpression } from "~/shared/data-variables";
-import { updateWebstudioData } from "~/shared/instance-utils";
+import { computeExpression } from "@webstudio-is/project-build/runtime/data";
+import {
+  applyBuilderPatchPayloadMutable,
+  updateWebstudioData,
+} from "~/shared/instance-utils/data";
+import { createPropUpsertPayload } from "@webstudio-is/project-build/runtime/props";
 import {
   $selectedInstance,
   $selectedInstanceKeyWithRoot,
@@ -276,7 +284,13 @@ export const ResourceControl = ({
           type: "resource",
           value: newResource.id,
         };
-        data.props.set(newProp.id, newProp);
+        applyBuilderPatchPayloadMutable(
+          data,
+          createPropUpsertPayload({
+            props: data.props.values(),
+            nextProps: [newProp],
+          }).payload
+        );
         data.resources.set(newResource.id, newResource);
       }
     });

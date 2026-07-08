@@ -11,12 +11,13 @@ import { parseComponentName } from "@webstudio-is/sdk";
 import type { Instance } from "@webstudio-is/sdk";
 import { $instances, $pages } from "~/shared/sync/data-stores";
 import { getInstanceLabel } from "~/builder/shared/instance-label";
+import { $selectedPageId, selectInstance } from "~/shared/nano-states";
+import { findPageAndSelectorByInstanceId } from "~/shared/instance-utils/lookup";
 import {
-  $selectedPageId,
-  $selectedInstanceSelector,
-} from "~/shared/nano-states";
-import { findPageAndSelectorByInstanceId } from "~/shared/instance-utils";
-import { closeCommandPanel, $isCommandPanelOpen } from "../command-state";
+  closeCommandPanel,
+  $commandSearch,
+  $isCommandPanelOpen,
+} from "../command-state";
 import type { BaseOption } from "../shared/types";
 import { setActiveSidebarPanel } from "~/builder/shared/nano-states";
 import { humanizeString } from "~/shared/string-utils";
@@ -29,9 +30,13 @@ export type InstanceOption = BaseOption & {
 };
 
 export const $instanceOptions = computed(
-  [$isCommandPanelOpen, $instances, $pages],
-  (isOpen, instances, pages) => {
-    if (!isOpen || !pages) {
+  [$isCommandPanelOpen, $commandSearch, $instances, $pages],
+  (isCommandPanelOpen, commandSearch, instances, pages) => {
+    if (
+      isCommandPanelOpen === false ||
+      commandSearch.trim().length === 0 ||
+      pages === undefined
+    ) {
       return [];
     }
     const instanceOptions: InstanceOption[] = [];
@@ -90,7 +95,7 @@ export const InstancesGroup = ({ options }: { options: InstanceOption[] }) => {
                 );
                 if (awareness) {
                   $selectedPageId.set(awareness.pageId);
-                  $selectedInstanceSelector.set(awareness.instanceSelector);
+                  selectInstance(awareness.instanceSelector);
                   setActiveSidebarPanel("auto");
                 }
               }

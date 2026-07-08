@@ -1,8 +1,8 @@
 import { useEffect } from "react";
 import { atom } from "nanostores";
-import type { Change } from "immerhin";
 import type { Project } from "@webstudio-is/project";
 import type { Build } from "@webstudio-is/project-build";
+import type { BuilderPatchChange } from "@webstudio-is/project-build/contracts/patch";
 import type { AuthPermit } from "@webstudio-is/trpc-interface/index.server";
 import { toast } from "@webstudio-is/design-system";
 import {
@@ -10,14 +10,15 @@ import {
   $syncStatus,
   createBackoff,
   createTransactionCompletionStore,
+  stripRevisePatchesFromTransaction,
   type SyncStatus,
 } from "@webstudio-is/sync-client";
-import { loadBuilderData } from "~/shared/builder-data";
 import { publicStaticEnv } from "~/env/env.static";
 import { createNativeClient, nativeClient } from "~/shared/trpc/trpc-client";
 import * as commandQueue from "./command-queue";
 import type { SyncStorage } from "~/shared/sync-client";
 import type { Transaction } from "@webstudio-is/sync-client";
+import type { ServerSyncState } from "./sync-stores";
 
 export { commandQueue };
 
@@ -230,14 +231,9 @@ const pollQueue = async (signal: AbortSignal) => {
     for await (const _ of retry()) {
       // in case of any error continue retrying
       try {
-        // revise patches are not used on the server and reduce possible patch size
-        const optimizedTransactions = transactions.map((transaction) => ({
-          ...transaction,
-          payload: transaction.payload.map((change) => ({
-            namespace: change.namespace,
-            patches: change.patches,
-          })),
-        }));
+        const optimizedTransactions = transactions.map(
+          stripRevisePatchesFromTransaction
+        );
         const patchClient =
           details.authToken === undefined
             ? nativeClient
@@ -337,12 +333,14 @@ const pollQueue = async (signal: AbortSignal) => {
 export class ServerSyncStorage implements SyncStorage {
   name = "server";
   private projectId: string;
+  private initialState: ServerSyncState;
 
-  constructor(projectId: string) {
+  constructor(projectId: string, initialState: ServerSyncState) {
     this.projectId = projectId;
+    this.initialState = initialState;
   }
 
-  sendTransaction(transaction: Transaction<Change[]>) {
+  sendTransaction(transaction: Transaction<BuilderPatchChange[]>) {
     if (transaction.object === "server") {
       $lastTransactionId.set(transaction.id);
       $syncStatus.set({ status: "syncing" });
@@ -354,20 +352,10 @@ export class ServerSyncStorage implements SyncStorage {
     }
   }
   subscribe(setState: (state: unknown) => void, signal: AbortSignal) {
-    const projectId = this.projectId;
-    loadBuilderData({ projectId, signal })
-      .then((data: Record<string, unknown>) => {
-        const serverData = new Map(Object.entries(data));
-        setState(new Map([["server", serverData]]));
-      })
-      .catch((err: unknown) => {
-        if (err instanceof Error) {
-          console.error(err);
-          return;
-        }
-
-        // Abort error do nothing
-      });
+    if (signal.aborted) {
+      return;
+    }
+    setState(new Map([["server", this.initialState]]));
   }
 }
 

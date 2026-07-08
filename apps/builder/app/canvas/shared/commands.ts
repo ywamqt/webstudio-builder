@@ -2,24 +2,29 @@ import { FORMAT_TEXT_COMMAND } from "lexical";
 import { TOGGLE_LINK_COMMAND } from "@lexical/link";
 import { createCommandsEmitter } from "~/shared/commands-emitter";
 import { getElementByInstanceSelector } from "~/shared/dom-utils";
-import { findAllEditableInstanceSelector } from "~/shared/instance-utils";
+import { findAllEditableInstanceSelector } from "~/shared/instance-utils/lookup";
 import {
+  $allSelectedInstanceSelectors,
   $registeredComponentMetas,
+  $propsIndex,
+  $selectedInstanceSelector,
   $textEditingInstanceSelector,
   $textToolbar,
+  clearInstanceSelection,
+  selectInstance,
 } from "~/shared/nano-states";
-import { $instances } from "~/shared/sync/data-stores";
-import { $props } from "~/shared/sync/data-stores";
+import { $instances, $props } from "~/shared/sync/data-stores";
 import {
   CLEAR_FORMAT_COMMAND,
   TOGGLE_SPAN_COMMAND,
   getActiveEditor,
   hasSelectionFormat,
 } from "../features/text-editor/toolbar-connector";
-import { $selectedInstanceSelector } from "~/shared/nano-states";
-import { selectInstance } from "~/shared/nano-states";
-import { isDescendantOrSelf, type InstanceSelector } from "~/shared/tree-utils";
-import { deleteSelectedInstance } from "~/shared/instance-utils";
+import {
+  isDescendantOrSelf,
+  type InstanceSelector,
+} from "~/shared/instance-utils/tree";
+import { deleteSelectedInstance } from "~/shared/instance-utils/mutation";
 import { findClosestRichText } from "~/shared/content-model";
 import { getDeletablePageActionTarget } from "~/shared/page-action-target";
 
@@ -34,7 +39,17 @@ const deleteSelectedPageOrInstance = () => {
 
 export const { emitCommand, subscribeCommands } = createCommandsEmitter({
   source: "canvas",
-  externalCommands: ["clickCanvas", "deleteInstanceBuilder"],
+  externalCommands: [
+    "clickCanvas",
+    "deleteInstanceBuilder",
+    "moveInstanceUp",
+    "moveInstanceDown",
+    "moveInstanceOut",
+    "moveInstanceIntoPreviousSibling",
+    "selectPreviousSibling",
+    "selectNextSibling",
+    "selectSiblingInstances",
+  ],
   commands: [
     {
       name: "deleteInstanceCanvas",
@@ -75,6 +90,7 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
           instances: $instances.get(),
           props: $props.get(),
           metas: $registeredComponentMetas.get(),
+          htmlTagsByInstanceId: $propsIndex.get().htmlTagsByInstanceId,
         });
 
         if (editableInstanceSelector === undefined) {
@@ -85,6 +101,7 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
             instances: $instances.get(),
             props: $props.get(),
             metas: $registeredComponentMetas.get(),
+            htmlTagsByInstanceId: $propsIndex.get().htmlTagsByInstanceId,
             results: selectors,
           });
 
@@ -121,7 +138,6 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
       // reset selection for canvas, but not for the builder
       disableHotkeyOutsideApp: true,
       handler: () => {
-        const selectedInstanceSelector = $selectedInstanceSelector.get();
         const textEditingInstanceSelector = $textEditingInstanceSelector.get();
         const textToolbar = $textToolbar.get();
 
@@ -137,9 +153,9 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
           return;
         }
 
-        if (selectedInstanceSelector) {
+        if ($allSelectedInstanceSelectors.get().length > 0) {
           // unselect both instance and style source
-          selectInstance(undefined);
+          clearInstanceSelection();
           return;
         }
       },

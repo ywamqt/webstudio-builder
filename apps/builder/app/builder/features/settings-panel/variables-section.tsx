@@ -41,12 +41,12 @@ import {
   $selectedInstanceKeyWithRoot,
   $selectedPage,
 } from "~/shared/nano-states";
-import { updateWebstudioData } from "~/shared/instance-utils";
+import { updateWebstudioData } from "~/shared/instance-utils/data";
 import {
   deleteVariableMutable,
   findAvailableVariables,
   findUsedVariables,
-} from "~/shared/data-variables";
+} from "@webstudio-is/project-build/runtime/data";
 import { DeleteDataVariableDialog } from "~/builder/shared/data-variable-utils";
 
 /**

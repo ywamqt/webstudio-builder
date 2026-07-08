@@ -55,10 +55,12 @@ import {
   $templateIdToDelete,
 } from "~/shared/nano-states";
 import { $pages } from "~/shared/sync/data-stores";
+import { getAllChildrenAndSelf } from "@webstudio-is/project-build/runtime/pages";
 import {
-  getAllChildrenAndSelf,
   reparentOrphansMutable,
   reparentPageOrFolderMutable,
+} from "~/shared/page-utils/tree";
+import {
   deletePageMutable,
   deleteFolderWithChildrenMutable,
   duplicateFolder,
@@ -84,7 +86,7 @@ import {
 } from "@webstudio-is/sdk";
 import { atom, computed } from "nanostores";
 import { isPathnamePattern } from "~/builder/shared/url-pattern";
-import { updateWebstudioData } from "~/shared/instance-utils";
+import { updateWebstudioData } from "~/shared/instance-utils/data";
 import { $selectedPage } from "~/shared/nano-states";
 import { selectPage } from "~/shared/nano-states";
 

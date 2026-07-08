@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
   documentTypes,
-  OldPagePath,
-  PageAuth,
-  PagePath,
-  Pages,
-  ProjectNewRedirectPath,
+  redirectSourcePath,
+  pageAuth,
+  pagePath,
+  pages,
+  projectNewRedirectPath,
 } from "./pages";
 
 const validPages = {
@@ -39,7 +39,7 @@ const validPages = {
 
 test("validates home page id references an existing page", () => {
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       homePageId: "missing",
     }).error?.issues
@@ -55,7 +55,7 @@ test("validates home page id references an existing page", () => {
 
 test("validates root folder id references an existing folder", () => {
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       rootFolderId: "missing",
     }).error?.issues
@@ -69,7 +69,7 @@ test("validates root folder id references an existing folder", () => {
 
 test("validates home page path is empty", () => {
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       pages: new Map(validPages.pages).set("home", {
         ...validPages.pages.get("home")!,
@@ -86,7 +86,7 @@ test("validates home page path is empty", () => {
 
 test("validates non-home page path is not empty", () => {
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       pages: new Map(validPages.pages).set("other", {
         id: "other",
@@ -112,7 +112,7 @@ test("validates non-home page path is not empty", () => {
 test("supports text document type", () => {
   expect(documentTypes).toContain("text");
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       pages: new Map(validPages.pages).set("text", {
         id: "text",
@@ -132,7 +132,7 @@ test("supports text document type", () => {
 
 test("validates page id matches its record key", () => {
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       pages: new Map(validPages.pages).set("home", {
         ...validPages.pages.get("home")!,
@@ -151,7 +151,7 @@ test("validates page id matches its record key", () => {
 
 test("validates folder id matches its record key", () => {
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       folders: new Map(validPages.folders).set("root", {
         ...validPages.folders.get("root")!,
@@ -168,7 +168,7 @@ test("validates folder id matches its record key", () => {
 
 test("validates folder children reference existing pages or folders", () => {
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       folders: new Map(validPages.folders).set("root", {
         ...validPages.folders.get("root")!,
@@ -185,7 +185,7 @@ test("validates folder children reference existing pages or folders", () => {
 
 test("validates root folder starts with home page", () => {
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       pages: new Map(validPages.pages).set("other", {
         id: "other",
@@ -210,7 +210,7 @@ test("validates root folder starts with home page", () => {
 
 test("validates root folder is not nested", () => {
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       folders: new Map(validPages.folders).set("folder", {
         id: "folder",
@@ -230,7 +230,7 @@ test("validates root folder is not nested", () => {
 describe("PageAuth", () => {
   test("accepts basic auth metadata", () => {
     expect(
-      PageAuth.parse({
+      pageAuth.parse({
         method: "basic",
         login: "admin",
         password: "secret",
@@ -244,7 +244,7 @@ describe("PageAuth", () => {
 
   test("normalizes legacy basic auth metadata", () => {
     expect(
-      PageAuth.parse({
+      pageAuth.parse({
         type: "basic",
         login: "admin",
         password: "secret",
@@ -258,7 +258,7 @@ describe("PageAuth", () => {
 
   test("rejects invalid basic auth metadata", () => {
     expect(
-      PageAuth.safeParse({
+      pageAuth.safeParse({
         method: "basic",
         login: "admin:root",
         password: "secret phrase",
@@ -280,7 +280,7 @@ describe("PageAuth", () => {
 
 test("validates children are registered in only one folder", () => {
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       folders: new Map(validPages.folders).set("folder", {
         id: "folder",
@@ -299,7 +299,7 @@ test("validates children are registered in only one folder", () => {
 
 test("validates folders do not contain cycles", () => {
   expect(
-    Pages.safeParse({
+    pages.safeParse({
       ...validPages,
       folders: new Map([
         ...validPages.folders,
@@ -333,195 +333,206 @@ test("validates folders do not contain cycles", () => {
   );
 });
 
-describe("OldPagePath", () => {
+describe("redirectSourcePath", () => {
   describe("basic validation", () => {
     test("accepts valid path", () => {
-      expect(OldPagePath.safeParse("/about").success).toBe(true);
-      expect(OldPagePath.safeParse("/blog/post").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/about").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/blog/post").success).toBe(true);
     });
 
     test("rejects empty string", () => {
-      const result = OldPagePath.safeParse("");
+      const result = redirectSourcePath.safeParse("");
       expect(result.success).toBe(false);
     });
 
     test("rejects just a slash", () => {
-      const result = OldPagePath.safeParse("/");
+      const result = redirectSourcePath.safeParse("/");
       expect(result.success).toBe(false);
     });
 
     test("must start with /", () => {
-      const result = OldPagePath.safeParse("about");
+      const result = redirectSourcePath.safeParse("about");
       expect(result.success).toBe(false);
     });
 
-    test("cannot end with /", () => {
-      const result = OldPagePath.safeParse("/about/");
-      expect(result.success).toBe(false);
+    test("accepts trailing slash", () => {
+      const result = redirectSourcePath.safeParse("/about/");
+      expect(result.success).toBe(true);
     });
 
-    test("cannot contain //", () => {
-      const result = OldPagePath.safeParse("/about//page");
+    test("accepts repeated slashes inside the path", () => {
+      const result = redirectSourcePath.safeParse("/about//page");
+      expect(result.success).toBe(true);
+    });
+
+    test("rejects protocol-relative paths", () => {
+      const result = redirectSourcePath.safeParse("//example.com/path");
       expect(result.success).toBe(false);
     });
 
     test("rejects /s prefix (reserved)", () => {
-      expect(OldPagePath.safeParse("/s").success).toBe(false);
-      expect(OldPagePath.safeParse("/s/css").success).toBe(false);
+      expect(redirectSourcePath.safeParse("/s").success).toBe(false);
+      expect(redirectSourcePath.safeParse("/s/css").success).toBe(false);
     });
 
     test("rejects /build prefix (reserved)", () => {
-      expect(OldPagePath.safeParse("/build").success).toBe(false);
-      expect(OldPagePath.safeParse("/build/main.js").success).toBe(false);
+      expect(redirectSourcePath.safeParse("/build").success).toBe(false);
+      expect(redirectSourcePath.safeParse("/build/main.js").success).toBe(
+        false
+      );
     });
   });
 
   describe("special characters", () => {
     test("accepts wildcards", () => {
-      expect(OldPagePath.safeParse("/blog/*").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/blog/*").success).toBe(true);
     });
 
     test("accepts dynamic segments", () => {
-      expect(OldPagePath.safeParse("/:slug").success).toBe(true);
-      expect(OldPagePath.safeParse("/blog/:id").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/:slug").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/blog/:id").success).toBe(true);
     });
 
     test("accepts optional segments", () => {
-      expect(OldPagePath.safeParse("/:id?").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/:id?").success).toBe(true);
     });
 
     test("accepts query strings", () => {
-      expect(OldPagePath.safeParse("/search?q=test").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/search?q=test").success).toBe(true);
+      expect(
+        redirectSourcePath.safeParse("/path?url=https://example.com/a?b=c")
+          .success
+      ).toBe(true);
     });
 
     test("accepts URL-encoded characters", () => {
-      expect(OldPagePath.safeParse("/hello%20world").success).toBe(true);
-      expect(OldPagePath.safeParse("/%E6%B8%AF%E8%81%9E").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/hello%20world").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/%E6%B8%AF%E8%81%9E").success).toBe(
+        true
+      );
     });
   });
 
-  describe("invalid characters", () => {
-    test("rejects spaces", () => {
-      const result = OldPagePath.safeParse("/hello world");
-      expect(result.success).toBe(false);
+  describe("browser-requestable characters", () => {
+    test("accepts spaces", () => {
+      expect(redirectSourcePath.safeParse("/hello world").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/path with spaces").success).toBe(
+        true
+      );
     });
 
-    test("rejects angle brackets", () => {
-      expect(OldPagePath.safeParse("/path<script>").success).toBe(false);
-      expect(OldPagePath.safeParse("/path>other").success).toBe(false);
+    test("accepts characters browsers encode in paths", () => {
+      expect(redirectSourcePath.safeParse("/path<script>").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/path>other").success).toBe(true);
+      expect(redirectSourcePath.safeParse('/path"quote').success).toBe(true);
+      expect(redirectSourcePath.safeParse("/path{test}").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/path|other").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/path[0]").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/path`backtick").success).toBe(true);
     });
 
-    test("rejects quotes", () => {
-      expect(OldPagePath.safeParse('/path"quote').success).toBe(false);
+    test("rejects backslash because URL parsers normalize it to slash", () => {
+      expect(redirectSourcePath.safeParse("/path\\other").success).toBe(false);
     });
 
-    test("rejects curly braces", () => {
-      expect(OldPagePath.safeParse("/path{test}").success).toBe(false);
-    });
-
-    test("rejects pipe", () => {
-      expect(OldPagePath.safeParse("/path|other").success).toBe(false);
-    });
-
-    test("rejects backslash", () => {
-      expect(OldPagePath.safeParse("/path\\other").success).toBe(false);
-    });
-
-    test("rejects square brackets", () => {
-      expect(OldPagePath.safeParse("/path[0]").success).toBe(false);
+    test("rejects control characters", () => {
+      expect(redirectSourcePath.safeParse("/line\nfeed").success).toBe(false);
+      expect(redirectSourcePath.safeParse("/tab\tfeed").success).toBe(false);
     });
   });
 
   describe("non-Latin characters (Unicode/UTF-8)", () => {
     test("accepts Chinese characters (Simplified)", () => {
-      expect(OldPagePath.safeParse("/关于我们").success).toBe(true);
-      expect(OldPagePath.safeParse("/产品/手机").success).toBe(true);
-      expect(OldPagePath.safeParse("/新闻").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/关于我们").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/产品/手机").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/新闻").success).toBe(true);
     });
 
     test("accepts Chinese characters (Traditional)", () => {
-      expect(OldPagePath.safeParse("/關於我們").success).toBe(true);
-      expect(OldPagePath.safeParse("/港聞").success).toBe(true);
-      expect(OldPagePath.safeParse("/繁體中文").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/關於我們").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/港聞").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/繁體中文").success).toBe(true);
     });
 
     test("accepts Japanese characters (Hiragana)", () => {
-      expect(OldPagePath.safeParse("/こんにちは").success).toBe(true);
-      expect(OldPagePath.safeParse("/ブログ/記事").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/こんにちは").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/ブログ/記事").success).toBe(true);
     });
 
     test("accepts Japanese characters (Katakana)", () => {
-      expect(OldPagePath.safeParse("/カテゴリ").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/カテゴリ").success).toBe(true);
     });
 
     test("accepts Japanese characters (Kanji)", () => {
-      expect(OldPagePath.safeParse("/日本語").success).toBe(true);
-      expect(OldPagePath.safeParse("/東京").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/日本語").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/東京").success).toBe(true);
     });
 
     test("accepts Korean characters (Hangul)", () => {
-      expect(OldPagePath.safeParse("/한국어").success).toBe(true);
-      expect(OldPagePath.safeParse("/블로그/포스트").success).toBe(true);
-      expect(OldPagePath.safeParse("/서울").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/한국어").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/블로그/포스트").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/서울").success).toBe(true);
     });
 
     test("accepts Cyrillic characters", () => {
-      expect(OldPagePath.safeParse("/привет").success).toBe(true);
-      expect(OldPagePath.safeParse("/о-нас").success).toBe(true);
-      expect(OldPagePath.safeParse("/блог/статья").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/привет").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/о-нас").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/блог/статья").success).toBe(true);
     });
 
     test("accepts Arabic characters", () => {
-      expect(OldPagePath.safeParse("/مرحبا").success).toBe(true);
-      expect(OldPagePath.safeParse("/عن-الشركة").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/مرحبا").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/عن-الشركة").success).toBe(true);
     });
 
     test("accepts Hebrew characters", () => {
-      expect(OldPagePath.safeParse("/שלום").success).toBe(true);
-      expect(OldPagePath.safeParse("/אודות").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/שלום").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/אודות").success).toBe(true);
     });
 
     test("accepts Thai characters", () => {
-      expect(OldPagePath.safeParse("/สวัสดี").success).toBe(true);
-      expect(OldPagePath.safeParse("/เกี่ยวกับเรา").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/สวัสดี").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/เกี่ยวกับเรา").success).toBe(true);
     });
 
     test("accepts Greek characters", () => {
-      expect(OldPagePath.safeParse("/γεια").success).toBe(true);
-      expect(OldPagePath.safeParse("/σχετικά").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/γεια").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/σχετικά").success).toBe(true);
     });
 
     test("accepts mixed Latin and non-Latin characters", () => {
-      expect(OldPagePath.safeParse("/blog/关于").success).toBe(true);
-      expect(OldPagePath.safeParse("/news/港聞").success).toBe(true);
-      expect(OldPagePath.safeParse("/category/日本語").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/blog/关于").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/news/港聞").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/category/日本語").success).toBe(
+        true
+      );
     });
 
     test("accepts European characters with diacritics", () => {
-      expect(OldPagePath.safeParse("/über-uns").success).toBe(true);
-      expect(OldPagePath.safeParse("/café").success).toBe(true);
-      expect(OldPagePath.safeParse("/niño").success).toBe(true);
-      expect(OldPagePath.safeParse("/naïve").success).toBe(true);
-      expect(OldPagePath.safeParse("/résumé").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/über-uns").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/café").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/niño").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/naïve").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/résumé").success).toBe(true);
     });
 
     test("accepts emoji characters", () => {
-      expect(OldPagePath.safeParse("/🎉").success).toBe(true);
-      expect(OldPagePath.safeParse("/hello-🌍").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/🎉").success).toBe(true);
+      expect(redirectSourcePath.safeParse("/hello-🌍").success).toBe(true);
     });
   });
 });
 
-describe("PagePath", () => {
+describe("pagePath", () => {
   describe("path length validation", () => {
     test("accepts a path of exactly 255 characters", () => {
       const path = "/" + "a".repeat(254);
-      expect(PagePath.safeParse(path).success).toBe(true);
+      expect(pagePath.safeParse(path).success).toBe(true);
     });
 
     test("rejects a path exceeding 255 characters", () => {
       const path = "/" + "a".repeat(255);
-      const result = PagePath.safeParse(path);
+      const result = pagePath.safeParse(path);
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error.issues[0].message).toBe(
@@ -532,30 +543,30 @@ describe("PagePath", () => {
   });
 });
 
-describe("ProjectNewRedirectPath", () => {
+describe("projectNewRedirectPath", () => {
   test("accepts relative paths", () => {
-    expect(ProjectNewRedirectPath.safeParse("/about").success).toBe(true);
-    expect(ProjectNewRedirectPath.safeParse("/").success).toBe(true);
+    expect(projectNewRedirectPath.safeParse("/about").success).toBe(true);
+    expect(projectNewRedirectPath.safeParse("/").success).toBe(true);
   });
 
   test("accepts absolute URLs", () => {
     expect(
-      ProjectNewRedirectPath.safeParse("https://example.com/page").success
+      projectNewRedirectPath.safeParse("https://example.com/page").success
     ).toBe(true);
   });
 
   test("accepts non-Latin character paths", () => {
-    expect(ProjectNewRedirectPath.safeParse("/关于我们").success).toBe(true);
-    expect(ProjectNewRedirectPath.safeParse("/日本語").success).toBe(true);
-    expect(ProjectNewRedirectPath.safeParse("/한국어").success).toBe(true);
+    expect(projectNewRedirectPath.safeParse("/关于我们").success).toBe(true);
+    expect(projectNewRedirectPath.safeParse("/日本語").success).toBe(true);
+    expect(projectNewRedirectPath.safeParse("/한국어").success).toBe(true);
   });
 
   test("rejects empty string", () => {
-    expect(ProjectNewRedirectPath.safeParse("").success).toBe(false);
+    expect(projectNewRedirectPath.safeParse("").success).toBe(false);
   });
 
   test("rejects truly invalid URLs", () => {
-    expect(ProjectNewRedirectPath.safeParse("http://[invalid").success).toBe(
+    expect(projectNewRedirectPath.safeParse("http://[invalid").success).toBe(
       false
     );
   });

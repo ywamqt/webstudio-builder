@@ -2,7 +2,7 @@ import { useLayoutEffect } from "react";
 import { computed } from "nanostores";
 import { useStore } from "@nanostores/react";
 import {
-  Instance,
+  type Instance,
   ROOT_INSTANCE_ID,
   getStyleDeclKey,
   descendantComponent,
@@ -17,7 +17,7 @@ import { inflatedAttribute, idAttribute } from "@webstudio-is/react-sdk";
 import { INFLATE_PADDING } from "~/canvas/inflator";
 import { isPseudoElement, parseMediaCondition } from "@webstudio-is/css-data";
 import {
-  StyleValue,
+  type StyleValue,
   type MediaRuleOptions,
   type StyleSheetRegular,
   type TransformValue,
@@ -49,8 +49,8 @@ import {
   $selectedInstanceSelector,
   $selectedPage,
 } from "~/shared/nano-states";
-import { findAllEditableInstanceSelector } from "~/shared/instance-utils";
-import type { InstanceSelector } from "~/shared/tree-utils";
+import { findAllEditableInstanceSelector } from "~/shared/instance-utils/lookup";
+import type { InstanceSelector } from "~/shared/instance-utils/tree";
 import { getAllElementsByInstanceSelector } from "~/shared/dom-utils";
 import { createComputedStyleDeclStore } from "~/builder/features/style-panel/shared/model";
 

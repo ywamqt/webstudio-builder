@@ -1,25 +1,35 @@
-import { applyPatches, enableMapSet, enablePatches, type Patch } from "immer";
+import type { Patch } from "immer";
 import {
-  Breakpoints,
+  type Breakpoints,
+  breakpoints,
   type Breakpoint,
-  DataSources,
+  type DataSources,
+  dataSources,
   type DataSource,
-  Instances,
+  type Instances,
+  instances,
   type Instance,
-  Pages,
-  Props,
+  type Pages,
+  pages,
+  type Props,
+  props,
   type Prop,
-  Resources,
+  type Resources,
+  resources,
   type Resource,
-  StyleSourceSelections,
-  StyleSources,
+  type StyleSourceSelections,
+  styleSourceSelections,
+  type StyleSources,
+  styleSources,
   type StyleSource,
-  Styles,
+  type Styles,
+  styles,
   getHomePage,
 } from "@webstudio-is/sdk";
 import {
   findCycles,
-  MarketplaceProduct,
+  type MarketplaceProduct,
+  marketplaceProduct,
   parsePages,
   serializePages,
   parseStyleSourceSelections,
@@ -32,18 +42,66 @@ import {
   serializeConfig,
   serializeData,
 } from "@webstudio-is/project-build";
+import type {
+  BuilderPatch,
+  BuilderPatchTransaction,
+} from "@webstudio-is/project-build/contracts/patch";
+import { applyBuilderNamespacePatches } from "@webstudio-is/project-build/state/patch";
 import type { Database } from "@webstudio-is/postgrest/index.server";
 
-enableMapSet();
-enablePatches();
+type TouchedKeys = {
+  keys: Set<string>;
+  wholeMap: boolean;
+};
+
+const createTouchedKeys = (): TouchedKeys => ({
+  keys: new Set(),
+  wholeMap: false,
+});
+
+const addTouchedPatchKeys = (touched: TouchedKeys, patches: Patch[]) => {
+  for (const patch of patches) {
+    const key = patch.path[0];
+    if (key === undefined) {
+      touched.wholeMap = true;
+      continue;
+    }
+    touched.keys.add(`${key}`);
+  }
+};
+
+const getTouchedMap = <Value>(
+  map: Map<string, Value>,
+  touched: TouchedKeys
+) => {
+  if (touched.wholeMap) {
+    return map;
+  }
+  const touchedMap = new Map<string, Value>();
+  for (const key of touched.keys) {
+    if (map.has(key) === false) {
+      continue;
+    }
+    const value = map.get(key) as Value;
+    touchedMap.set(key, value);
+  }
+  return touchedMap;
+};
+
+const validateTouchedMap = <Value>(
+  schema: { parse: (value: Map<string, Value>) => unknown },
+  map: Map<string, Value>,
+  touched: TouchedKeys
+) => {
+  schema.parse(getTouchedMap(map, touched));
+};
 
 export type BuildPatchChange = {
   namespace: string;
-  patches: Array<Patch>;
+  patches: BuilderPatch[];
 };
 
-export type BuildPatchTransaction = {
-  id: string;
+export type BuildPatchTransaction = Omit<BuilderPatchTransaction, "payload"> & {
   payload: BuildPatchChange[];
 };
 
@@ -107,11 +165,18 @@ export const createBuildPatchUpdate = async ({
   } = {};
 
   let previewImageAssetId: string | null | undefined = undefined;
-  const patchedStyleDeclKeysSet = new Set<string>();
+  const touchedBreakpoints = createTouchedKeys();
+  const touchedDataSources = createTouchedKeys();
+  const touchedInstances = createTouchedKeys();
+  const touchedProps = createTouchedKeys();
+  const touchedResources = createTouchedKeys();
+  const touchedStyles = createTouchedKeys();
+  const touchedStyleSources = createTouchedKeys();
+  const touchedStyleSourceSelections = createTouchedKeys();
   const assetPatches: Patch[][] = [];
 
-  for await (const transaction of transactions) {
-    for await (const change of transaction.payload) {
+  for (const transaction of transactions) {
+    for (const change of transaction.payload) {
       const { namespace, patches } = change;
       if (patches.length === 0) {
         continue;
@@ -121,7 +186,7 @@ export const createBuildPatchUpdate = async ({
         const pages = buildData.pages ?? parsePages(build.pages);
         const currentSocialImageAssetId =
           getHomePage(pages).meta.socialImageAssetId;
-        buildData.pages = applyPatches(pages, patches);
+        buildData.pages = applyBuilderNamespacePatches(pages, patches);
         const newSocialImageAssetId = getHomePage(buildData.pages).meta
           .socialImageAssetId;
         if (currentSocialImageAssetId !== newSocialImageAssetId) {
@@ -131,12 +196,13 @@ export const createBuildPatchUpdate = async ({
       }
 
       if (namespace === "instances") {
+        addTouchedPatchKeys(touchedInstances, patches);
         const instances =
           buildData.instances ?? parseInstanceData(build.instances);
 
-        buildData.instances = applyPatches(instances, patches);
+        buildData.instances = applyBuilderNamespacePatches(instances, patches);
 
-        const cycles = findCycles(buildData.instances.values());
+        const cycles = findCycles(buildData.instances?.values() ?? []);
         if (cycles.length > 0) {
           console.error(
             "Cycles detected in the instance tree after patching",
@@ -153,8 +219,9 @@ export const createBuildPatchUpdate = async ({
       }
 
       if (namespace === "props") {
+        addTouchedPatchKeys(touchedProps, patches);
         const props = buildData.props ?? parseData<Prop>(build.props);
-        buildData.props = applyPatches(props, patches);
+        buildData.props = applyBuilderNamespacePatches(props, patches);
         continue;
       }
 
@@ -164,10 +231,11 @@ export const createBuildPatchUpdate = async ({
       }
 
       if (namespace === "styleSourceSelections") {
+        addTouchedPatchKeys(touchedStyleSourceSelections, patches);
         const styleSourceSelections =
           buildData.styleSourceSelections ??
           parseStyleSourceSelections(build.styleSourceSelections);
-        buildData.styleSourceSelections = applyPatches(
+        buildData.styleSourceSelections = applyBuilderNamespacePatches(
           styleSourceSelections,
           patches
         );
@@ -175,40 +243,51 @@ export const createBuildPatchUpdate = async ({
       }
 
       if (namespace === "styleSources") {
+        addTouchedPatchKeys(touchedStyleSources, patches);
         const styleSources =
           buildData.styleSources ?? parseData<StyleSource>(build.styleSources);
-        buildData.styleSources = applyPatches(styleSources, patches);
+        buildData.styleSources = applyBuilderNamespacePatches(
+          styleSources,
+          patches
+        );
         continue;
       }
 
       if (namespace === "styles") {
-        for (const patch of patches) {
-          patchedStyleDeclKeysSet.add(`${patch.path[0]}`);
-        }
+        addTouchedPatchKeys(touchedStyles, patches);
 
         const styles = buildData.styles ?? parseStyles(build.styles);
-        buildData.styles = applyPatches(styles, patches);
+        buildData.styles = applyBuilderNamespacePatches(styles, patches);
         continue;
       }
 
       if (namespace === "dataSources") {
+        addTouchedPatchKeys(touchedDataSources, patches);
         const dataSources =
           buildData.dataSources ?? parseData<DataSource>(build.dataSources);
-        buildData.dataSources = applyPatches(dataSources, patches);
+        buildData.dataSources = applyBuilderNamespacePatches(
+          dataSources,
+          patches
+        );
         continue;
       }
 
       if (namespace === "resources") {
+        addTouchedPatchKeys(touchedResources, patches);
         const resources =
           buildData.resources ?? parseData<Resource>(build.resources);
-        buildData.resources = applyPatches(resources, patches);
+        buildData.resources = applyBuilderNamespacePatches(resources, patches);
         continue;
       }
 
       if (namespace === "breakpoints") {
+        addTouchedPatchKeys(touchedBreakpoints, patches);
         const breakpoints =
           buildData.breakpoints ?? parseData<Breakpoint>(build.breakpoints);
-        buildData.breakpoints = applyPatches(breakpoints, patches);
+        buildData.breakpoints = applyBuilderNamespacePatches(
+          breakpoints,
+          patches
+        );
         continue;
       }
 
@@ -217,7 +296,7 @@ export const createBuildPatchUpdate = async ({
           buildData.marketplaceProduct ??
           parseConfig<MarketplaceProduct>(build.marketplaceProduct);
 
-        buildData.marketplaceProduct = applyPatches(
+        buildData.marketplaceProduct = applyBuilderNamespacePatches(
           marketplaceProduct,
           patches
         );
@@ -236,66 +315,68 @@ export const createBuildPatchUpdate = async ({
   };
 
   if (buildData.pages) {
-    update.pages = serializePages(Pages.parse(buildData.pages));
+    const pagesData = buildData.pages;
+    update.pages = serializePages(pages.parse(pagesData));
   }
 
   if (buildData.breakpoints) {
-    update.breakpoints = serializeData<Breakpoint>(
-      Breakpoints.parse(buildData.breakpoints)
-    );
+    const breakpointsData = buildData.breakpoints;
+    validateTouchedMap(breakpoints, breakpointsData, touchedBreakpoints);
+    update.breakpoints = serializeData<Breakpoint>(breakpointsData);
   }
 
   if (buildData.instances) {
-    update.instances = serializeData<Instance>(
-      Instances.parse(buildData.instances)
-    );
+    const instancesData = buildData.instances;
+    validateTouchedMap(instances, instancesData, touchedInstances);
+    update.instances = serializeData<Instance>(instancesData);
   }
 
   if (buildData.props) {
-    update.props = serializeData<Prop>(Props.parse(buildData.props));
+    const propsData = buildData.props;
+    validateTouchedMap(props, propsData, touchedProps);
+    update.props = serializeData<Prop>(propsData);
   }
 
   if (buildData.dataSources) {
-    update.dataSources = serializeData<DataSource>(
-      DataSources.parse(buildData.dataSources)
-    );
+    const dataSourcesData = buildData.dataSources;
+    validateTouchedMap(dataSources, dataSourcesData, touchedDataSources);
+    update.dataSources = serializeData<DataSource>(dataSourcesData);
   }
 
   if (buildData.resources) {
-    update.resources = serializeData<Resource>(
-      Resources.parse(buildData.resources)
-    );
+    const resourcesData = buildData.resources;
+    validateTouchedMap(resources, resourcesData, touchedResources);
+    update.resources = serializeData<Resource>(resourcesData);
   }
 
   if (buildData.styleSources) {
-    update.styleSources = serializeData<StyleSource>(
-      StyleSources.parse(buildData.styleSources)
-    );
+    const styleSourcesData = buildData.styleSources;
+    validateTouchedMap(styleSources, styleSourcesData, touchedStyleSources);
+    update.styleSources = serializeData<StyleSource>(styleSourcesData);
   }
 
   if (buildData.styleSourceSelections) {
+    const styleSourceSelectionsData = buildData.styleSourceSelections;
+    validateTouchedMap(
+      styleSourceSelections,
+      styleSourceSelectionsData,
+      touchedStyleSourceSelections
+    );
     update.styleSourceSelections = serializeStyleSourceSelections(
-      StyleSourceSelections.parse(buildData.styleSourceSelections)
+      styleSourceSelectionsData
     );
   }
 
   if (buildData.styles) {
-    const stylesToValidate: Styles = new Map();
-    for (const styleId of patchedStyleDeclKeysSet) {
-      const style = buildData.styles.get(styleId);
-      if (style === undefined) {
-        continue;
-      }
-      stylesToValidate.set(styleId, style);
-    }
-
-    Styles.parse(stylesToValidate);
-    update.styles = serializeStyles(buildData.styles);
+    const stylesData = buildData.styles;
+    validateTouchedMap(styles, stylesData, touchedStyles);
+    update.styles = serializeStyles(stylesData);
   }
 
   if (buildData.marketplaceProduct) {
+    const marketplaceProductData = buildData.marketplaceProduct;
     update.marketplaceProduct = serializeConfig<MarketplaceProduct>(
-      MarketplaceProduct.parse(buildData.marketplaceProduct)
+      marketplaceProduct.parse(marketplaceProductData)
     );
   }
 

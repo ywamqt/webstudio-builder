@@ -1,5 +1,23 @@
+import {
+  unwrapInstance,
+  deleteInstanceMutable,
+  deleteSelectedInstance,
+  reparentInstance,
+  sortInstancePathsForChildMutation,
+} from "~/shared/instance-utils/mutation";
+import { toggleInstanceShow } from "~/shared/instance-utils/mutation";
+import {
+  extractWebstudioFragment,
+  insertWebstudioFragmentCopy,
+} from "@webstudio-is/project-build/runtime/fragment";
+import { insertWebstudioFragmentAt } from "~/shared/instance-utils/insert";
 import { toast } from "@webstudio-is/design-system";
-import { type WebstudioFragment } from "@webstudio-is/sdk";
+import {
+  ROOT_INSTANCE_ID,
+  isComponentDetachable,
+  type WebstudioFragment,
+} from "@webstudio-is/sdk";
+import type { Project } from "@webstudio-is/project";
 import {
   isAutoGridPlacement,
   resetGridChildPlacement,
@@ -14,13 +32,14 @@ import {
   $editingItemSelector,
   $editingPageId,
   $folderIdToDelete,
+  $isContentMode,
   $isDesignMode,
   $isPreviewMode,
   $pageIdToDelete,
   $templateIdToDelete,
   toggleBuilderMode,
 } from "~/shared/nano-states";
-import { $project } from "~/shared/sync/data-stores";
+import { $instances, $project } from "~/shared/sync/data-stores";
 
 // Declare command for type safety
 declare module "~/shared/pubsub" {
@@ -34,14 +53,10 @@ import {
   selectBreakpointByOrder,
 } from "~/shared/breakpoints";
 import {
+  updateInstanceData,
   updateWebstudioData,
-  unwrapInstance,
-  detachSharedSlotContentMutable,
-  deleteSelectedInstance,
-  extractWebstudioFragment,
-  insertWebstudioFragmentAt,
-  insertWebstudioFragmentCopy,
-} from "~/shared/instance-utils";
+} from "~/shared/instance-utils/data";
+import { canDeleteInstanceInContentMode } from "~/shared/instance-utils/data";
 import { serverSyncStore } from "~/shared/sync/sync-stores";
 import { $publisher } from "~/shared/pubsub";
 import {
@@ -51,14 +66,22 @@ import {
   setActiveSidebarPanel,
   toggleActiveSidebarPanel,
 } from "./nano-states";
-import { $selectedInstancePath } from "~/shared/nano-states";
-import { selectInstance, selectPage } from "~/shared/nano-states";
+import {
+  $allSelectedInstanceSelectors,
+  $selectedInstancePath,
+  clearInstanceSelection,
+  getInstancePath,
+  selectInstance,
+  selectInstances,
+  selectPage,
+  type InstancePath,
+} from "~/shared/nano-states";
 import { openCommandPanel } from "../features/command-panel";
 import { showWrapComponentsList } from "../features/command-panel/groups/wrap-group";
 import { showConvertComponentsList } from "../features/command-panel/groups/convert-group";
 import { builderApi } from "~/shared/builder-api";
 import { getSetting, setSetting } from "./client-settings";
-import { findAvailableVariables } from "~/shared/data-variables";
+import { findAvailableVariables } from "@webstudio-is/project-build/runtime/data";
 import { generateFragmentFromHtml } from "~/shared/html";
 import { generateFragmentFromTailwind } from "~/shared/tailwind/tailwind";
 import { denormalizeSrcProps } from "~/shared/copy-paste/asset-upload";
@@ -76,11 +99,17 @@ import {
   emitPaste,
   cutInstance,
 } from "~/shared/copy-paste/copy-paste";
-import { toggleInstanceShow } from "~/shared/instance-utils";
 import {
   getDeletablePageActionTarget,
   getPageActionTarget,
 } from "~/shared/page-action-target";
+import {
+  getDirectSharedSlotChildBoundary,
+  normalizeLegacySlotInstancePathMutable,
+} from "~/shared/instance-utils/slot";
+import type { InstanceSelector } from "~/shared/instance-utils/tree";
+import { areInstanceSelectorsEqual } from "~/shared/instance-utils/tree";
+import { findChildReferenceIndex } from "@webstudio-is/project-build/runtime/instances";
 
 const makeBreakpointCommand = <CommandName extends string>(
   name: CommandName,
@@ -107,6 +136,14 @@ const exitPreviewModeFromNonCanvasSource = (source: string) => {
 const canRunDesignModeCommand = ({ isDesignMode }: { isDesignMode: boolean }) =>
   isDesignMode;
 
+const canRunDesignOrContentModeCommand = ({
+  isContentMode,
+  isDesignMode,
+}: {
+  isContentMode: boolean;
+  isDesignMode: boolean;
+}) => isDesignMode || isContentMode;
+
 const guardDesignModeCommand = ({
   isDesignMode,
   message,
@@ -122,6 +159,27 @@ const guardDesignModeCommand = ({
   toastInfo(message);
   return false;
 };
+
+const guardDesignOrContentModeCommand = ({
+  isContentMode,
+  isDesignMode,
+  message,
+  toastInfo = builderApi.toast.info,
+}: {
+  isContentMode: boolean;
+  isDesignMode: boolean;
+  message: string;
+  toastInfo?: (message: string) => void;
+}) => {
+  if (canRunDesignOrContentModeCommand({ isContentMode, isDesignMode })) {
+    return true;
+  }
+  toastInfo(message);
+  return false;
+};
+
+const hasMultiInstanceSelection = () =>
+  $allSelectedInstanceSelectors.get().length > 1;
 
 const copyPageActionTarget = () => {
   if ($isDesignMode.get() === false) {
@@ -170,7 +228,9 @@ const duplicatePageActionTarget = () => {
 };
 
 export const __testing__ = {
+  canRunDesignOrContentModeCommand,
   canRunDesignModeCommand,
+  guardDesignOrContentModeCommand,
   guardDesignModeCommand,
 };
 
@@ -195,6 +255,362 @@ const requestSelectedPageItemDelete = () => {
     $templateIdToDelete.set(target.id);
   }
   return true;
+};
+
+type InstanceMoveDirection = "up" | "down" | "intoPreviousSibling" | "out";
+
+type SelectedInstancePath = {
+  index: number;
+  instancePath: InstancePath;
+  instanceSelector: InstanceSelector;
+};
+
+const getAllSelectedInstancePaths = () => {
+  const instances = $instances.get();
+  const selectedInstanceSelectors = $allSelectedInstanceSelectors.get();
+  const selectedInstancePaths: SelectedInstancePath[] = [];
+  selectedInstanceSelectors.forEach((instanceSelector, index) => {
+    if (instanceSelector[0] === ROOT_INSTANCE_ID) {
+      return;
+    }
+    const instancePath = getInstancePath(instanceSelector, instances);
+    if (instancePath === undefined || instancePath.length === 1) {
+      return;
+    }
+    selectedInstancePaths.push({ index, instancePath, instanceSelector });
+  });
+  return selectedInstancePaths;
+};
+
+const getSiblingSelection = (selectedInstancePaths: SelectedInstancePath[]) => {
+  const [firstSelectedPath] = selectedInstancePaths;
+  const parentItem = firstSelectedPath?.instancePath[1];
+  if (parentItem === undefined) {
+    return;
+  }
+  const parentSelector = parentItem.instanceSelector;
+  if (
+    selectedInstancePaths.every(({ instancePath }) =>
+      areInstanceSelectorsEqual(
+        instancePath[1]?.instanceSelector,
+        parentSelector
+      )
+    ) === false
+  ) {
+    return;
+  }
+  const siblingIds = parentItem.instance.children.flatMap((child) =>
+    child.type === "id" ? [child.value] : []
+  );
+  const selectedIndexes = selectedInstancePaths
+    .map(({ instancePath }) => siblingIds.indexOf(instancePath[0].instance.id))
+    .filter((index) => index !== -1);
+  if (selectedIndexes.length === 0) {
+    return;
+  }
+  return { parentSelector, selectedIndexes, siblingIds };
+};
+
+const selectAdjacentSibling = (direction: "previous" | "next") => {
+  const selectedInstancePaths = getAllSelectedInstancePaths();
+  if (selectedInstancePaths.length === 0) {
+    return;
+  }
+  const siblingSelection = getSiblingSelection(selectedInstancePaths);
+  if (siblingSelection === undefined) {
+    return;
+  }
+  const { parentSelector, selectedIndexes, siblingIds } = siblingSelection;
+  const nextIndex =
+    direction === "previous"
+      ? Math.min(...selectedIndexes) - 1
+      : Math.max(...selectedIndexes) + 1;
+  const nextSiblingId = siblingIds[nextIndex];
+  if (nextSiblingId === undefined) {
+    return;
+  }
+  const selectedSiblingIds = new Set(
+    selectedInstancePaths.map(({ instancePath }) => instancePath[0].instance.id)
+  );
+  selectedSiblingIds.add(nextSiblingId);
+  selectInstances(
+    siblingIds
+      .filter((instanceId) => selectedSiblingIds.has(instanceId))
+      .map((instanceId) => [instanceId, ...parentSelector])
+  );
+};
+
+const selectSiblingInstances = () => {
+  const selectedInstancePaths = getAllSelectedInstancePaths();
+  if (selectedInstancePaths.length === 0) {
+    return;
+  }
+  const siblingSelection = getSiblingSelection(selectedInstancePaths);
+  if (siblingSelection === undefined) {
+    return;
+  }
+  const { parentSelector, siblingIds } = siblingSelection;
+  selectInstances(
+    siblingIds.map((instanceId) => [instanceId, ...parentSelector])
+  );
+};
+
+const reportSkippedSelectedInstances = (
+  operation: "duplicated" | "deleted"
+) => {
+  builderApi.toast.info(`Some selected instances could not be ${operation}.`);
+};
+
+const deleteSelectedInstances = () => {
+  if ($isPreviewMode.get()) {
+    return false;
+  }
+  const selectedInstancePaths = getAllSelectedInstancePaths();
+  if (selectedInstancePaths.length < 2) {
+    return false;
+  }
+  const instances = $instances.get();
+  const isContentMode = $isContentMode.get();
+  const actionableInstancePaths = selectedInstancePaths.filter(
+    ({ instancePath, instanceSelector }) =>
+      isComponentDetachable(instancePath[0].instance.component) &&
+      (isContentMode === false ||
+        canDeleteInstanceInContentMode({ instanceSelector, instances }))
+  );
+  if (actionableInstancePaths.length === 0) {
+    return true;
+  }
+  if (actionableInstancePaths.length < selectedInstancePaths.length) {
+    reportSkippedSelectedInstances("deleted");
+  }
+
+  updateInstanceData((data) => {
+    for (const { instancePath } of sortInstancePathsForChildMutation(
+      actionableInstancePaths
+    )) {
+      deleteInstanceMutable(data, instancePath);
+    }
+    clearInstanceSelection();
+  });
+  return true;
+};
+
+const duplicateSelectedInstances = (project: Project) => {
+  const selectedInstancePaths = getAllSelectedInstancePaths();
+  if (selectedInstancePaths.length < 2) {
+    return false;
+  }
+  const actionableInstancePaths = selectedInstancePaths.filter(
+    ({ instancePath }) =>
+      isComponentDetachable(instancePath[0].instance.component)
+  );
+  if (actionableInstancePaths.length === 0) {
+    return true;
+  }
+  if (actionableInstancePaths.length < selectedInstancePaths.length) {
+    reportSkippedSelectedInstances("duplicated");
+  }
+  const newInstanceSelectors = new Map<number, InstanceSelector>();
+
+  updateWebstudioData((data) => {
+    for (const { index, instancePath } of sortInstancePathsForChildMutation(
+      actionableInstancePaths
+    )) {
+      const normalizedInstancePath = normalizeLegacySlotInstancePathMutable(
+        data.instances,
+        instancePath
+      );
+      const [selectedItem, parentItem] = normalizedInstancePath;
+      if (parentItem === undefined) {
+        continue;
+      }
+      const fragment = extractWebstudioFragment(data, selectedItem.instance.id);
+      const { newInstanceIds } = insertWebstudioFragmentCopy({
+        data,
+        fragment,
+        availableVariables: findAvailableVariables({
+          ...data,
+          startingInstanceId: parentItem.instanceSelector[0],
+        }),
+        projectId: project.id,
+      });
+      const newRootInstanceId = newInstanceIds.get(selectedItem.instance.id);
+      if (newRootInstanceId === undefined) {
+        continue;
+      }
+
+      if (
+        isAutoGridPlacement({
+          styles: data.styles,
+          styleSources: data.styleSources,
+          styleSourceSelections: data.styleSourceSelections,
+          instanceId: selectedItem.instance.id,
+        })
+      ) {
+        resetGridChildPlacement({
+          styles: data.styles,
+          styleSources: data.styleSources,
+          styleSourceSelections: data.styleSourceSelections,
+          instanceId: newRootInstanceId,
+        });
+      }
+
+      const parentInstance = data.instances.get(parentItem.instance.id);
+      if (parentInstance === undefined) {
+        continue;
+      }
+      const indexWithinChildren = findChildReferenceIndex(
+        parentInstance.children,
+        selectedItem.instance.id
+      );
+      if (indexWithinChildren === -1) {
+        continue;
+      }
+      parentInstance.children.splice(indexWithinChildren + 1, 0, {
+        type: "id",
+        value: newRootInstanceId,
+      });
+      newInstanceSelectors.set(index, [
+        newRootInstanceId,
+        ...parentItem.instanceSelector,
+      ]);
+    }
+  });
+
+  const sortedNewInstanceSelectors = [...newInstanceSelectors]
+    .sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+    .map(([, instanceSelector]) => instanceSelector);
+  if (sortedNewInstanceSelectors.length > 0) {
+    selectInstances(sortedNewInstanceSelectors);
+  }
+  return true;
+};
+
+const getOutdentMoveTarget = (
+  instancePath: NonNullable<ReturnType<typeof $selectedInstancePath.get>>,
+  positionRelativeToParent: "before" | "after"
+) => {
+  const parentItem = instancePath[1];
+  const grandparentItem = instancePath[2];
+  if (parentItem === undefined || grandparentItem === undefined) {
+    return;
+  }
+
+  const directSlotBoundary = getDirectSharedSlotChildBoundary(instancePath);
+  if (directSlotBoundary !== undefined) {
+    const slotParentItem = directSlotBoundary.slotParentItem;
+    if (slotParentItem === undefined) {
+      return;
+    }
+    const slotPosition = findChildReferenceIndex(
+      slotParentItem.instance.children,
+      directSlotBoundary.slotId
+    );
+    if (slotPosition === -1) {
+      return;
+    }
+    return {
+      parentSelector: slotParentItem.instanceSelector,
+      position:
+        positionRelativeToParent === "before" ? slotPosition : slotPosition + 1,
+    };
+  }
+
+  const parent = parentItem.instance;
+  const parentIndex = findChildReferenceIndex(
+    grandparentItem.instance.children,
+    parent.id
+  );
+  if (parentIndex === -1) {
+    return;
+  }
+  return {
+    parentSelector: grandparentItem.instanceSelector,
+    position:
+      positionRelativeToParent === "before" ? parentIndex : parentIndex + 1,
+  };
+};
+
+const getInstanceMoveTarget = (direction: InstanceMoveDirection) => {
+  const instancePath = $selectedInstancePath.get();
+  const selectedItem = instancePath?.[0];
+  const parentItem = instancePath?.[1];
+  if (
+    instancePath === undefined ||
+    selectedItem === undefined ||
+    parentItem === undefined
+  ) {
+    return;
+  }
+
+  const parent = parentItem.instance;
+  const selectedIndex = findChildReferenceIndex(
+    parent.children,
+    selectedItem.instance.id
+  );
+  if (selectedIndex === -1) {
+    return;
+  }
+
+  if (direction === "up") {
+    if (selectedIndex === 0) {
+      return getOutdentMoveTarget(instancePath, "before");
+    }
+    return {
+      parentSelector: parentItem.instanceSelector,
+      position: selectedIndex - 1,
+    };
+  }
+
+  if (direction === "down") {
+    if (selectedIndex >= parent.children.length - 1) {
+      return getOutdentMoveTarget(instancePath, "after");
+    }
+    return {
+      parentSelector: parentItem.instanceSelector,
+      position: selectedIndex + 2,
+    };
+  }
+
+  if (direction === "intoPreviousSibling") {
+    if (selectedIndex === 0) {
+      return;
+    }
+    const previousChild = parent.children[selectedIndex - 1];
+    if (previousChild?.type !== "id") {
+      return;
+    }
+    return {
+      parentSelector: [previousChild.value, ...parentItem.instanceSelector],
+      position: "end" as const,
+    };
+  }
+
+  return getOutdentMoveTarget(
+    instancePath,
+    selectedIndex === 0 ? "before" : "after"
+  );
+};
+
+const moveSelectedInstance = (direction: InstanceMoveDirection) => {
+  if (
+    guardDesignModeCommand({
+      isDesignMode: $isDesignMode.get(),
+      message: "Moving is only allowed in design mode.",
+    }) === false
+  ) {
+    return;
+  }
+  const instancePath = $selectedInstancePath.get();
+  const selectedItem = instancePath?.[0];
+  if (selectedItem === undefined) {
+    return;
+  }
+  const target = getInstanceMoveTarget(direction);
+  if (target === undefined) {
+    return;
+  }
+  reparentInstance(selectedItem.instanceSelector, target);
 };
 
 export const { emitCommand, subscribeCommands } = createCommandsEmitter({
@@ -357,6 +773,9 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
       category: "Style panel",
       defaultHotkeys: ["meta+enter", "ctrl+enter"],
       handler: () => {
+        if (hasMultiInstanceSelection()) {
+          return;
+        }
         if ($isDesignMode.get() === false) {
           builderApi.toast.info(
             "Style panel is only available in design mode."
@@ -411,6 +830,9 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
       category: "Panels",
       defaultHotkeys: ["d"],
       handler: () => {
+        if (hasMultiInstanceSelection()) {
+          return;
+        }
         $activeInspectorPanel.set("settings");
       },
       disableOnInputLikeControls: true,
@@ -426,7 +848,7 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
     makeBreakpointCommand("selectBreakpoint9", 9),
     {
       name: "copy",
-      description: "Copy selected page or instance",
+      description: "Copy selected page or instance(s)",
       category: "Navigator",
       handler: () => {
         if (copyPageActionTarget()) {
@@ -437,13 +859,14 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
     },
     {
       name: "paste",
-      description: "Paste copied instance",
+      description: "Paste copied instance(s)",
       category: "Navigator",
       handler: () => {
         if (
-          guardDesignModeCommand({
+          guardDesignOrContentModeCommand({
+            isContentMode: $isContentMode.get(),
             isDesignMode: $isDesignMode.get(),
-            message: "Pasting is only allowed in design mode.",
+            message: "Pasting is only allowed in design or content mode.",
           })
         ) {
           void emitPaste();
@@ -452,7 +875,7 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
     },
     {
       name: "cut",
-      description: "Cut selected instance",
+      description: "Cut selected instance(s)",
       category: "Navigator",
       handler: () => {
         if (
@@ -478,6 +901,9 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
         ) {
           return;
         }
+        if (hasMultiInstanceSelection()) {
+          return;
+        }
         const instancePath = $selectedInstancePath.get();
         if (instancePath?.[0]) {
           toggleInstanceShow(instancePath[0].instance.id);
@@ -485,15 +911,78 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
       },
     },
     {
+      name: "moveInstanceUp",
+      label: "Move up",
+      description: "Move selected instance above the previous sibling",
+      category: "Navigator",
+      defaultHotkeys: ["meta+arrowup", "ctrl+arrowup"],
+      disableOnInputLikeControls: true,
+      handler: () => moveSelectedInstance("up"),
+    },
+    {
+      name: "moveInstanceDown",
+      label: "Move down",
+      description: "Move selected instance below the next sibling",
+      category: "Navigator",
+      defaultHotkeys: ["meta+arrowdown", "ctrl+arrowdown"],
+      disableOnInputLikeControls: true,
+      handler: () => moveSelectedInstance("down"),
+    },
+    {
+      name: "moveInstanceOut",
+      label: "Move out",
+      description: "Move selected instance out of its parent",
+      category: "Navigator",
+      defaultHotkeys: ["meta+arrowleft", "ctrl+arrowleft"],
+      disableOnInputLikeControls: true,
+      handler: () => moveSelectedInstance("out"),
+    },
+    {
+      name: "moveInstanceIntoPreviousSibling",
+      label: "Move in",
+      description: "Move selected instance into the previous sibling",
+      category: "Navigator",
+      defaultHotkeys: ["meta+arrowright", "ctrl+arrowright"],
+      disableOnInputLikeControls: true,
+      handler: () => moveSelectedInstance("intoPreviousSibling"),
+    },
+    {
+      name: "selectPreviousSibling",
+      hidden: true,
+      category: "Navigator",
+      defaultHotkeys: ["shift+arrowup"],
+      disableOnInputLikeControls: true,
+      handler: () => selectAdjacentSibling("previous"),
+    },
+    {
+      name: "selectNextSibling",
+      hidden: true,
+      category: "Navigator",
+      defaultHotkeys: ["shift+arrowdown"],
+      disableOnInputLikeControls: true,
+      handler: () => selectAdjacentSibling("next"),
+    },
+    {
+      name: "selectSiblingInstances",
+      hidden: true,
+      category: "Navigator",
+      defaultHotkeys: ["meta+a", "ctrl+a"],
+      disableOnInputLikeControls: true,
+      handler: selectSiblingInstances,
+    },
+    {
       name: "deleteInstanceBuilder",
       label: "Delete",
-      description: "Delete selected page or instance",
+      description: "Delete selected page or instance(s)",
       category: "Navigator",
       defaultHotkeys: ["backspace", "delete"],
       // See "deleteInstanceCanvas" for details on why the command is separated for the canvas and builder.
       disableHotkeyOutsideApp: true,
       disableOnInputLikeControls: true,
       handler: () => {
+        if (deleteSelectedInstances()) {
+          return;
+        }
         if (requestSelectedPageItemDelete()) {
           return;
         }
@@ -502,7 +991,7 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
     },
     {
       name: "duplicateInstance",
-      description: "Duplicate selected page or instance",
+      description: "Duplicate selected page or instance(s)",
       category: "Navigator",
       defaultHotkeys: ["meta+d", "ctrl+d"],
       handler: () => {
@@ -518,6 +1007,9 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
         ) {
           return;
         }
+        if (duplicateSelectedInstances(project)) {
+          return;
+        }
         if (duplicatePageActionTarget()) {
           return;
         }
@@ -528,11 +1020,11 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
         }
 
         updateWebstudioData((data) => {
-          const detachedInstancePath = detachSharedSlotContentMutable(
-            data,
+          const normalizedInstancePath = normalizeLegacySlotInstancePathMutable(
+            data.instances,
             instancePath
           );
-          const [selectedItem, parentItem] = detachedInstancePath;
+          const [selectedItem, parentItem] = normalizedInstancePath;
           if (parentItem === undefined) {
             return;
           }
@@ -608,6 +1100,9 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
         ) {
           return;
         }
+        if (hasMultiInstanceSelection()) {
+          return;
+        }
         const instancePath = $selectedInstancePath.get();
         if (instancePath === undefined) {
           return;
@@ -632,6 +1127,9 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
         ) {
           return;
         }
+        if (hasMultiInstanceSelection()) {
+          return;
+        }
         showWrapComponentsList();
       },
     },
@@ -647,6 +1145,9 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
             message: "Unwrapping is only allowed in design mode.",
           })
         ) {
+          if (hasMultiInstanceSelection()) {
+            return;
+          }
           unwrapInstance();
         }
       },
@@ -664,6 +1165,9 @@ export const { emitCommand, subscribeCommands } = createCommandsEmitter({
             message: "Converting is only allowed in design mode.",
           }) === false
         ) {
+          return;
+        }
+        if (hasMultiInstanceSelection()) {
           return;
         }
         showConvertComponentsList();

@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { InputErrorsTooltip } from "@webstudio-is/design-system";
 import { CustomMetadata } from "../custom-metadata";
-import { computeExpression } from "~/shared/data-variables";
+import { computeExpression } from "@webstudio-is/project-build/runtime/data";
 import type { Errors, OnChange, Values } from "./shared";
 
-const CustomMetadataValues = z.object({
+const customMetadataValues = z.object({
   customMetas: z
     .array(
       z.object({
@@ -19,7 +19,7 @@ export const validateCustomMetadataSection = (
   values: Values,
   variableValues: Map<string, unknown>
 ): Errors => {
-  const parsedResult = CustomMetadataValues.safeParse({
+  const parsedResult = customMetadataValues.safeParse({
     customMetas: values.customMetas.map((item) => ({
       property: item.property,
       content: computeExpression(item.content, variableValues),

@@ -2,12 +2,13 @@ import type { Instance, WebstudioFragment } from "@webstudio-is/sdk";
 import {
   findClosestInsertable,
   insertInstanceChildrenMutable,
-  insertWebstudioFragmentCopy,
-  updateWebstudioData,
-} from "../../instance-utils";
+} from "../../instance-utils/insert";
+import { insertWebstudioFragmentCopy } from "@webstudio-is/project-build/runtime/fragment";
+import { updateWebstudioData } from "../../instance-utils/data";
 import { $project } from "~/shared/sync/data-stores";
 import {
-  WfData,
+  type WfData,
+  wfData,
   wfNodeTypes,
   type WfNode,
   type WfStyle,
@@ -18,9 +19,9 @@ import { addStyles } from "./styles";
 import { builderApi } from "~/shared/builder-api";
 import { denormalizeSrcProps } from "../asset-upload";
 import { nanoHash } from "~/shared/nano-hash";
-import { findAvailableVariables } from "~/shared/data-variables";
+import { findAvailableVariables } from "@webstudio-is/project-build/runtime/data";
 import type { Plugin } from "../copy-paste";
-import { breakpointPasteLimitWarning } from "~/shared/breakpoints";
+import { breakpointPasteLimitWarning } from "@webstudio-is/project-build/runtime/breakpoints";
 
 const { toast } = builderApi;
 
@@ -129,7 +130,7 @@ const parse = (clipboardData: string) => {
     console.info(message);
   }
 
-  const result = WfData.safeParse(data);
+  const result = wfData.safeParse(data);
 
   if (result.success) {
     const unpasedTypes = new Set<string>();

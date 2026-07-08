@@ -26,6 +26,7 @@ import {
   FloatingPanel,
   Label,
   ScrollArea,
+  ScrollAreaNative,
   SmallIconButton,
   Text,
   Tooltip,
@@ -34,13 +35,13 @@ import {
 import {
   decodeDataSourceVariable,
   getExpressionIdentifiers,
-  lintExpression,
 } from "@webstudio-is/sdk";
+import { getExpressionErrorMessages } from "~/shared/expression-validation";
 import { $dataSourceVariables, $isDesignMode } from "~/shared/nano-states";
 import {
   computeExpression,
   encodeDataVariableName,
-} from "~/shared/data-variables";
+} from "@webstudio-is/project-build/runtime/data";
 import {
   ExpressionEditor,
   formatValuePreview,
@@ -121,12 +122,10 @@ const BindingPanel = ({
   const scopeEntries = Object.entries(scope);
 
   const validate = (expression: string) => {
-    const diagnostics = lintExpression({
+    const errors = getExpressionErrorMessages({
       expression,
       availableVariables: new Set(aliases.keys()),
     });
-    // prevent saving expression only with syntax error
-    const errors = diagnostics.filter((item) => item.severity === "error");
     setErrorsCount(errors.length);
   };
 
@@ -163,38 +162,40 @@ const BindingPanel = ({
             </Text>
           </Flex>
         )}
-        <CssValueListArrowFocus>
-          {scopeEntries.map(([identifier, value], index) => {
-            const name = aliases.get(identifier);
-            const label =
-              value === undefined
-                ? name
-                : `${name}: ${formatValuePreview(value)}`;
-            return (
-              <CssValueListItem
-                key={identifier}
-                id={identifier}
-                index={index}
-                label={<Label truncate>{label}</Label>}
-                // mark all variables used in expression as selected
-                active={usedIdentifiers.has(identifier)}
-                // convert variable to expression
-                onClick={() => {
-                  if (name) {
-                    const nameIdentifier = encodeDataVariableName(name);
-                    editorApiRef.current?.replaceSelection(nameIdentifier);
-                  }
-                }}
-                // expression editor blur is fired after pointer down even
-                // preventing it allows to not trigger validation
-                // and flickering error tooltip
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                }}
-              />
-            );
-          })}
-        </CssValueListArrowFocus>
+        <ScrollAreaNative css={{ maxHeight: theme.spacing[25] }}>
+          <CssValueListArrowFocus>
+            {scopeEntries.map(([identifier, value], index) => {
+              const name = aliases.get(identifier);
+              const label =
+                value === undefined
+                  ? name
+                  : `${name}: ${formatValuePreview(value)}`;
+              return (
+                <CssValueListItem
+                  key={identifier}
+                  id={identifier}
+                  index={index}
+                  label={<Label truncate>{label}</Label>}
+                  // mark all variables used in expression as selected
+                  active={usedIdentifiers.has(identifier)}
+                  // convert variable to expression
+                  onClick={() => {
+                    if (name) {
+                      const nameIdentifier = encodeDataVariableName(name);
+                      editorApiRef.current?.replaceSelection(nameIdentifier);
+                    }
+                  }}
+                  // expression editor blur is fired after pointer down even
+                  // preventing it allows to not trigger validation
+                  // and flickering error tooltip
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                  }}
+                />
+              );
+            })}
+          </CssValueListArrowFocus>
+        </ScrollAreaNative>
       </Box>
       <Flex gap="1" css={{ padding: theme.panel.padding }}>
         <Text variant="labels">Expression editor</Text>

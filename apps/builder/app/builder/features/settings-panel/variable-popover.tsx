@@ -45,10 +45,10 @@ import {
 import {
   type DataSource,
   transpileExpression,
-  lintExpression,
   SYSTEM_VARIABLE_ID,
-  ResourceRequest,
+  resourceRequest,
 } from "@webstudio-is/sdk";
+import { hasExpressionDiagnostics } from "~/shared/expression-validation";
 import {
   ExpressionEditor,
   formatValue,
@@ -70,11 +70,11 @@ import {
   EditorDialogControl,
   foldGutterExtension,
 } from "~/shared/code-editor-base";
-import { updateWebstudioData } from "~/shared/instance-utils";
+import { updateWebstudioData } from "~/shared/instance-utils/data";
 import {
   findUnsetVariableNames,
   rebindTreeVariablesMutable,
-} from "~/shared/data-variables";
+} from "@webstudio-is/project-build/runtime/data";
 import { validateDataVariableName } from "~/builder/shared/data-variable-utils";
 import {
   GraphqlResourceForm,
@@ -495,9 +495,8 @@ const BooleanForm = forwardRef<
 BooleanForm.displayName = "BooleanForm";
 
 const validateJsonValue = (expression: string) => {
-  const diagnostics = lintExpression({ expression });
   // prevent saving with any message including unset variable
-  return diagnostics.length > 0 ? "error" : "";
+  return hasExpressionDiagnostics({ expression }) ? "error" : "";
 };
 
 const parseJsonValue = (expression: string) => {
@@ -695,18 +694,18 @@ const VariablePreview = ({
     computedValue = variable ? variableValues.get(variable.id) : undefined;
   } else {
     // try to load current resource or saved one
-    let resourceRequest = ResourceRequest.safeParse(variableValue).data;
-    if (!resourceRequest && variable?.type === "resource") {
+    let parsedResourceRequest = resourceRequest.safeParse(variableValue).data;
+    if (!parsedResourceRequest && variable?.type === "resource") {
       const resource = resources.get(variable.resourceId);
       if (resource) {
-        resourceRequest = computeResourceRequest(
+        parsedResourceRequest = computeResourceRequest(
           resource,
           resourceScope.variableValues
         );
       }
     }
-    if (resourceRequest) {
-      computedValue = resourcesCache.get(getResourceKey(resourceRequest));
+    if (parsedResourceRequest) {
+      computedValue = resourcesCache.get(getResourceKey(parsedResourceRequest));
     }
   }
   const extensions = useMemo(() => [javascript({}), foldGutterExtension], []);
