@@ -15,6 +15,7 @@ import {
 import {
   blockComponent,
   collectionComponent,
+  collectionDescription,
   descendantComponent,
   elementComponent,
 } from "./core-metas";
@@ -48,6 +49,7 @@ const collectionItemKey = new Parameter("collectionItemKey");
 const collectionMeta: TemplateMeta = {
   category: "data",
   order: 2,
+  description: collectionDescription,
   template: (
     <ws.collection
       data={["Collection Item 1", "Collection Item 2", "Collection Item 3"]}
@@ -114,9 +116,9 @@ const blockMeta: TemplateMeta = {
       </ws.element>
       <ws.element ws:label="Unordered List" ws:tag="ul">
         <ws.element ws:label="List Item" ws:tag="li">
-          In Content mode, you can edit any direct child instances that were
-          pre-added to the Content Block, as well as add new instances
-          predefined in templates.
+          In Content mode, you can edit content inside this Content Block and
+          add new instances predefined in templates. Content outside Content
+          Blocks is read-only.
         </ws.element>
         <ws.element ws:label="List Item" ws:tag="li">
           To predefine instances for insertion in Content mode, switch to Design

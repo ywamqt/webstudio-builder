@@ -1,6 +1,5 @@
 import { type FocusEventHandler, useId } from "react";
 import { useStore } from "@nanostores/react";
-import { z } from "zod";
 import {
   Checkbox,
   Flex,
@@ -9,7 +8,7 @@ import {
   InputField,
   Label,
   Link,
-  ProBadge,
+  ProChip,
   Select,
   Text,
   Tooltip,
@@ -18,14 +17,8 @@ import {
   theme,
 } from "@webstudio-is/design-system";
 import {
-  homePagePath,
-  pageName,
-  pagePath,
-  projectNewRedirectPath,
   documentTypes,
-  getPagePath,
   isLiteralExpression,
-  type Page,
   type Pages,
 } from "@webstudio-is/sdk";
 import { HomeIcon, InfoCircleIcon } from "@webstudio-is/icons";
@@ -33,116 +26,14 @@ import {
   BindingControl,
   BindingPopover,
 } from "~/builder/shared/binding-popover";
-import { computeExpression } from "@webstudio-is/project-build/runtime/data";
+import { computeExpression } from "@webstudio-is/project-build/runtime";
 import { $permissions } from "~/shared/nano-states";
 import { $pageRootScope } from "../page-utils";
-import { isPathAvailable } from "@webstudio-is/project-build/runtime/pages";
-import { validatePathnamePattern } from "~/builder/shared/url-pattern";
-import {
-  LOOP_ERROR,
-  wouldCreateLoop,
-} from "~/shared/redirects/redirect-loop-detection";
-import type { Errors, OnChange, Values } from "./shared";
-
-// 2xx, 3xx, 4xx, 5xx
-const statusRegex = /^[2345]\d\d$/;
-const status = z
-  .number()
-  .refine(
-    (value) => statusRegex.test(String(value)),
-    "Status code expects 2xx, 3xx, 4xx or 5xx"
-  );
-
-const generalValues = z.object({
-  name: pageName,
-  path: pagePath,
-  status: status.optional(),
-  redirect: z.optional(projectNewRedirectPath.or(z.literal(""))),
-  documentType: z.optional(z.enum(documentTypes)),
-});
-
-const homePageGeneralValues = generalValues.extend({
-  path: homePagePath,
-});
-
-const computePageRoute = (values: Values, pages: Pages) => {
-  if (values.isHomePage) {
-    return "/";
-  }
-  const foldersPath = getPagePath(values.parentFolderId, pages);
-  return [foldersPath, values.path]
-    .filter(Boolean)
-    .join("/")
-    .replace(/\/+/g, "/");
-};
-
-export const validateGeneralSection = ({
-  pages,
-  pageId,
-  values,
-  variableValues,
-}: {
-  pages: undefined | Pages;
-  pageId: undefined | Page["id"];
-  values: Values;
-  variableValues: Map<string, unknown>;
-}): Errors => {
-  const computedValues = {
-    name: values.name,
-    path: values.path,
-    status: computeExpression(values.status ?? `undefined`, variableValues),
-    redirect: computeExpression(values.redirect, variableValues),
-    documentType: values.documentType,
-  };
-
-  const validator = values.isHomePage ? homePageGeneralValues : generalValues;
-  const parsedResult = validator.safeParse(computedValues);
-  const errors: Errors = {};
-  if (parsedResult.success === false) {
-    Object.assign(errors, parsedResult.error.formErrors.fieldErrors);
-  }
-
-  if (pages !== undefined && values.path !== undefined) {
-    if (
-      isPathAvailable({
-        pages,
-        path: values.path,
-        parentFolderId: values.parentFolderId,
-        pageId,
-      }) === false
-    ) {
-      errors.path = errors.path ?? [];
-      errors.path.push("All paths must be unique");
-    }
-    const messages = validatePathnamePattern(values.path);
-    if (messages.length > 0) {
-      errors.path = errors.path ?? [];
-      errors.path.push(...messages);
-    }
-  }
-
-  if (
-    pages !== undefined &&
-    values.path !== undefined &&
-    computedValues.redirect &&
-    typeof computedValues.redirect === "string" &&
-    computedValues.redirect !== ""
-  ) {
-    const existingRedirects = pages.redirects ?? [];
-    if (
-      wouldCreateLoop(
-        computePageRoute(values, pages),
-        computedValues.redirect,
-        existingRedirects
-      )
-    ) {
-      errors.redirect = errors.redirect ?? [];
-      errors.redirect.push(LOOP_ERROR);
-    }
-  }
-
-  return errors;
-};
+import type {
+  PageSettingsErrors,
+  PageSettingsValues,
+} from "@webstudio-is/project-build/runtime";
+import { computePageSettingsText, type OnChange } from "./shared";
 
 const autoSelectHandler: FocusEventHandler<HTMLInputElement> = (event) =>
   event.target.select();
@@ -164,7 +55,7 @@ const PathField = ({
     <Grid gap={1}>
       <Flex align="center" gap={1}>
         <Label htmlFor={id}>Path</Label>
-        {allowDynamicData === false && <ProBadge>PRO</ProBadge>}
+        {allowDynamicData === false && <ProChip>PRO</ProChip>}
         <Tooltip
           content={
             <>
@@ -319,7 +210,7 @@ const RedirectField = ({
     <Grid gap={1}>
       <Flex align="center" gap={1}>
         <Label htmlFor={id}>Redirect </Label>
-        {allowDynamicData === false && <ProBadge>PRO</ProBadge>}
+        {allowDynamicData === false && <ProChip>PRO</ProChip>}
         <Tooltip
           content={
             <>
@@ -377,7 +268,7 @@ const RedirectField = ({
             id={id}
             placeholder="/another-path"
             disabled={disabled || isLiteralExpression(value) === false}
-            value={String(computeExpression(value, variableValues))}
+            value={computePageSettingsText(value, variableValues)}
             onChange={(event) => onChange(JSON.stringify(event.target.value))}
           />
         </InputErrorsTooltip>
@@ -396,6 +287,7 @@ export const GeneralSection = ({
   canEditName = true,
   canEditPath = true,
   showHomePageControl = true,
+  canSetHomePage = true,
   showPathField = true,
   showStatusField = true,
   showRedirectField = true,
@@ -404,14 +296,15 @@ export const GeneralSection = ({
   onChange,
 }: {
   autoSelect?: boolean;
-  errors: Errors;
-  values: Values;
+  errors: PageSettingsErrors;
+  values: PageSettingsValues;
   pages: Pages;
   isEditorContext?: boolean;
   nameLabel?: string;
   canEditName?: boolean;
   canEditPath?: boolean;
   showHomePageControl?: boolean;
+  canSetHomePage?: boolean;
   showPathField?: boolean;
   showStatusField?: boolean;
   showRedirectField?: boolean;
@@ -455,6 +348,13 @@ export const GeneralSection = ({
                   }}
                 >
                   “{values.name}” is the home page
+                </Text>
+              </>
+            ) : canSetHomePage === false ? (
+              <>
+                <HomeIcon color={rawTheme.colors.foregroundSubtle} />
+                <Text color="subtle">
+                  Stage this page for publish before setting it as the home page
                 </Text>
               </>
             ) : values.parentFolderId !== pages.rootFolderId ? (

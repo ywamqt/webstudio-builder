@@ -8,6 +8,17 @@ const builderNetworkIdleTimeout =
   Number.parseInt(process.env.E2E_BUILDER_NETWORK_IDLE_TIMEOUT_MS ?? "", 10) ||
   5_000;
 
+export const getCanvasInstanceSelector = (instanceSelector: string[]) =>
+  `[data-ws-selector="${instanceSelector.join(",")}"]`;
+
+export const getCanvasInstance = ({
+  canvas,
+  instanceSelector,
+}: {
+  canvas: Frame;
+  instanceSelector: string[];
+}) => canvas.locator(getCanvasInstanceSelector(instanceSelector)).first();
+
 export const getCanvasFrame = async (page: Page) => {
   const iframe = await page.locator("iframe").first().elementHandle();
   return (await iframe?.contentFrame()) ?? undefined;
@@ -116,13 +127,17 @@ export const openProjectBuilder = async ({
   projectId,
   authToken,
   mode,
+  features,
 }: {
   page: Page;
   projectId: string;
   authToken?: string;
   mode?: "content" | "preview";
+  features?: string[];
 }): Promise<Frame> => {
-  await page.goto(getProjectBuilderUrl({ projectId, authToken, mode }));
+  await page.goto(
+    getProjectBuilderUrl({ projectId, authToken, mode, features })
+  );
   await page
     .waitForLoadState("networkidle", { timeout: builderNetworkIdleTimeout })
     .catch(() => undefined);

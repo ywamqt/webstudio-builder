@@ -1,6 +1,5 @@
 import { useId } from "react";
 import { useStore } from "@nanostores/react";
-import { z } from "zod";
 import {
   Button,
   Grid,
@@ -12,28 +11,17 @@ import {
   BindingControl,
   BindingPopover,
 } from "~/builder/shared/binding-popover";
-import { computeExpression } from "@webstudio-is/project-build/runtime/data";
+import type {
+  PageSettingsErrors,
+  PageSettingsValues,
+} from "@webstudio-is/project-build/runtime";
 import { ImageControl } from "~/shared/project-settings";
 import { $assets } from "~/shared/sync/data-stores";
 import { isLiteralExpression } from "@webstudio-is/sdk";
 import { $pageRootScope } from "../page-utils";
 import { ImageInfo } from "../image-info";
 import { SocialPreview } from "../social-preview";
-import { usePageUrl, type Errors, type OnChange, type Values } from "./shared";
-
-const socialImageValues = z.object({
-  socialImageUrl: z.string().optional(),
-});
-
-export const validateSocialImageSection = (
-  values: Values,
-  variableValues: Map<string, unknown>
-): Errors => {
-  const parsedResult = socialImageValues.safeParse({
-    socialImageUrl: computeExpression(values.socialImageUrl, variableValues),
-  });
-  return parsedResult.success ? {} : parsedResult.error.formErrors.fieldErrors;
-};
+import { computePageSettingsText, usePageUrl, type OnChange } from "./shared";
 
 export const SocialImageSection = ({
   values,
@@ -42,8 +30,8 @@ export const SocialImageSection = ({
   showBindingControls = true,
   onChange,
 }: {
-  values: Values;
-  errors: Errors;
+  values: PageSettingsValues;
+  errors: PageSettingsErrors;
   disabled?: boolean;
   showBindingControls?: boolean;
   onChange: OnChange;
@@ -52,13 +40,15 @@ export const SocialImageSection = ({
   const assets = useStore($assets);
   const socialImageAsset = assets.get(values.socialImageAssetId);
   const { variableValues, scope, aliases } = useStore($pageRootScope);
-  const socialImageUrl = String(
-    computeExpression(values.socialImageUrl, variableValues)
+  const socialImageUrl = computePageSettingsText(
+    values.socialImageUrl,
+    variableValues
   );
   const pageUrl = usePageUrl(values);
-  const title = String(computeExpression(values.title, variableValues));
-  const description = String(
-    computeExpression(values.description, variableValues)
+  const title = computePageSettingsText(values.title, variableValues);
+  const description = computePageSettingsText(
+    values.description,
+    variableValues
   );
   return (
     <Grid gap={2}>

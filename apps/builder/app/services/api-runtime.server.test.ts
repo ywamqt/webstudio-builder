@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
+import { TRPCError } from "@trpc/server";
 import { createDefaultPages } from "@webstudio-is/project-build";
 import type { CompactBuild } from "@webstudio-is/project-build";
+import { createEmptyWebstudioFragment } from "@webstudio-is/project-build/runtime";
 import type { Asset } from "@webstudio-is/sdk";
 import {
   createBuilderRuntimeState,
@@ -13,7 +15,14 @@ const createBuild = (): CompactBuild =>
     projectId: "project-1",
     version: 1,
     pages: createDefaultPages({ rootInstanceId: "root-1" }),
-    instances: [{ type: "instance", id: "root-1", component: "Body" }],
+    instances: [
+      {
+        type: "instance",
+        id: "root-1",
+        component: "Body",
+        children: [],
+      },
+    ],
     props: [],
     styles: [],
     styleSources: [],
@@ -38,25 +47,117 @@ describe("api runtime adapter", () => {
     expect(state.assets?.get("asset-1")).not.toBe(asset);
   });
 
-  test("executes runtime reads and maps runtime errors to public api errors", () => {
+  test("executes runtime reads and maps runtime errors to public api errors", async () => {
     const build = createBuild();
 
-    expect(
+    await expect(
       executeApiRuntimeOperation({
         id: "pages.list",
         build,
         input: { projectId: "project-1" },
       })
-    ).toMatchObject({
+    ).resolves.toMatchObject({
       pages: [expect.objectContaining({ isHome: true })],
     });
 
-    expect(() =>
+    await expect(
       executeApiRuntimeOperation({
         id: "pages.get",
         build,
         input: { pageId: "missing" },
       })
-    ).toThrow("Page not found");
+    ).rejects.toThrow("Page not found");
+  });
+
+  test("strips API transport fields before strict runtime validation", async () => {
+    await expect(
+      executeApiRuntimeOperation({
+        id: "project.search",
+        build: createBuild(),
+        input: { projectId: "project-1", query: "Home" },
+      })
+    ).resolves.toMatchObject({ query: "Home" });
+  });
+
+  test("preserves actionable validation issues in public api errors", async () => {
+    await expect(
+      executeApiRuntimeOperation({
+        id: "pages.create",
+        build: createBuild(),
+        input: { projectId: "project-1", name: false, path: "/pricing" },
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      cause: expect.objectContaining({
+        webstudioCode: "INVALID_INPUT",
+        issues: [
+          expect.objectContaining({
+            path: ["name"],
+            constraint: "type:string",
+          }),
+        ],
+      }),
+    } satisfies Partial<TRPCError>);
+  });
+
+  test("awaits async runtime mutations before reading mutation payload", async () => {
+    const mutation = await executeApiRuntimeOperation({
+      id: "instances.insertComponent",
+      build: createBuild(),
+      input: {
+        projectId: "project-1",
+        parentInstanceId: "root-1",
+        component: "Form",
+      },
+    });
+
+    expect(mutation).toMatchObject({
+      payload: expect.arrayContaining([
+        expect.objectContaining({ namespace: "instances" }),
+      ]),
+      result: {
+        rootInstanceIds: expect.arrayContaining([expect.any(String)]),
+        instanceIds: expect.arrayContaining([expect.any(String)]),
+      },
+    });
+  });
+
+  test("executes semantic Collection insertion through the server runtime", async () => {
+    const mutation = await executeApiRuntimeOperation({
+      id: "instances.insertCollection",
+      build: createBuild(),
+      input: {
+        projectId: "project-1",
+        parentInstanceId: "root-1",
+        data: { type: "json", value: [{ title: "First" }] },
+        itemFragment: {
+          ...createEmptyWebstudioFragment(),
+          children: [{ type: "id", value: "item-root" }],
+          instances: [
+            {
+              type: "instance",
+              id: "item-root",
+              component: "ws:element",
+              tag: "article",
+              children: [],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(mutation).toMatchObject({
+      payload: expect.arrayContaining([
+        expect.objectContaining({ namespace: "instances" }),
+        expect.objectContaining({ namespace: "props" }),
+        expect.objectContaining({ namespace: "dataSources" }),
+      ]),
+      result: {
+        collectionInstanceId: expect.any(String),
+        itemRootInstanceId: expect.any(String),
+        itemParameterId: expect.any(String),
+        itemKeyParameterId: expect.any(String),
+      },
+    });
   });
 });

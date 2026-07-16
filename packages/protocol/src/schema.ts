@@ -1,10 +1,10 @@
 import { asset, page } from "@webstudio-is/sdk/schema";
-import { builderNamespaces } from "@webstudio-is/project-build/contracts/namespaces";
+import { builderNamespaces } from "@webstudio-is/project-build/contracts";
 import {
   builderPatchSchema as internalBuilderPatchSchema,
   builderPatchTransactionSchema as internalBuilderPatchTransactionSchema,
-} from "@webstudio-is/project-build/contracts/patch";
-import { serializedBuild } from "@webstudio-is/project-build/schema";
+} from "@webstudio-is/project-build/contracts";
+import { serializedBuild } from "@webstudio-is/project-build/contracts";
 import { wsAuthConfig } from "@webstudio-is/wsauth/schema";
 import { z } from "zod";
 import { createContractVersion } from "./contract-version";
@@ -114,13 +114,10 @@ export type BuildPatchTransaction = {
   id: string;
   payload: BuildPatchChange[];
 };
-export const buildPatch: z.ZodType<BuildPatch, z.ZodTypeDef, unknown> =
+export const buildPatch: z.ZodType<BuildPatch, unknown> =
   internalBuilderPatchSchema;
-export const buildPatchTransaction: z.ZodType<
-  BuildPatchTransaction,
-  z.ZodTypeDef,
-  unknown
-> = internalBuilderPatchTransactionSchema;
+export const buildPatchTransaction: z.ZodType<BuildPatchTransaction, unknown> =
+  internalBuilderPatchTransactionSchema;
 
 export const bundleVersion = createContractVersion(publishedProjectBundle, [
   wsAuthConfig,

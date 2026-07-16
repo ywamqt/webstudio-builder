@@ -129,7 +129,7 @@ export const saveShareLink = async (shareLink: string) => {
   await mkdir(dirname(localConfigPath), { recursive: true });
   await writeFile(
     localConfigPath,
-    JSON.stringify(localConfig, null, 2),
+    `${JSON.stringify(localConfig, null, 2)}\n`,
     "utf8"
   );
 
@@ -156,5 +156,7 @@ export const link = async (
   const { projectId } = await saveShareLink(shareLink);
   log.info(`Saved credentials for project ${projectId}.
 You can find your config at ${GLOBAL_CONFIG_FILE}`);
-  log.step("The project is linked successfully");
+  log.step(
+    "The project is linked successfully. Next run `webstudio sync`, then `webstudio connect` to configure an agent."
+  );
 };

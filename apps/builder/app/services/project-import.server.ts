@@ -4,12 +4,20 @@ import {
   type AppContext,
 } from "@webstudio-is/trpc-interface/index.server";
 import {
-  loadDevBuildByProjectId,
+  serializeConfig,
   serializeData,
-} from "@webstudio-is/project-build/index.server";
-import { migratePages } from "@webstudio-is/project-migrations/pages";
-import { serializeStyles } from "@webstudio-is/project-build/styles.server";
-import { serializeStyleSourceSelections } from "@webstudio-is/project-build/style-source-selections.server";
+  serializeStyles,
+  serializeStyleSourceSelections,
+} from "@webstudio-is/project-build/persistence";
+import { loadDevBuildByProjectId } from "@webstudio-is/project-build/server";
+import {
+  migratePages,
+  serializePages,
+} from "@webstudio-is/project-migrations/pages";
+import {
+  createProjectSettingsFromPages,
+  removeLegacyProjectSettingsFromPages,
+} from "@webstudio-is/project-build";
 import {
   isAssetFileName,
   getMissingImportedAssetFilesMessage,
@@ -73,22 +81,35 @@ const createBuildImportUpdate = ({
   lastTransactionId: string;
   updatedAt: string;
   version: number;
-}) => ({
-  version,
-  lastTransactionId,
-  updatedAt,
-  pages: JSON.stringify(data.build.pages),
-  breakpoints: serializeData<Breakpoint>(toMap(data.build.breakpoints)),
-  styles: serializeStyles(toMap(data.build.styles)),
-  styleSources: serializeData<StyleSource>(toMap(data.build.styleSources)),
-  styleSourceSelections: serializeStyleSourceSelections(
-    toMap(data.build.styleSourceSelections)
-  ),
-  props: serializeData<Prop>(toMap(data.build.props)),
-  dataSources: serializeData<DataSource>(toMap(data.build.dataSources)),
-  resources: serializeData<Resource>(toMap(data.build.resources)),
-  instances: serializeData<Instance>(toMap(data.build.instances)),
-});
+}) => {
+  const pages = migratePages(data.build.pages);
+  const projectSettings =
+    data.build.projectSettings ?? createProjectSettingsFromPages(pages);
+  return {
+    version,
+    lastTransactionId,
+    updatedAt,
+    pages: JSON.stringify(
+      serializePages(removeLegacyProjectSettingsFromPages(pages))
+    ),
+    projectSettings: serializeConfig(projectSettings),
+    ...(data.build.marketplaceProduct === undefined
+      ? {}
+      : {
+          marketplaceProduct: serializeConfig(data.build.marketplaceProduct),
+        }),
+    breakpoints: serializeData<Breakpoint>(toMap(data.build.breakpoints)),
+    styles: serializeStyles(toMap(data.build.styles)),
+    styleSources: serializeData<StyleSource>(toMap(data.build.styleSources)),
+    styleSourceSelections: serializeStyleSourceSelections(
+      toMap(data.build.styleSourceSelections)
+    ),
+    props: serializeData<Prop>(toMap(data.build.props)),
+    dataSources: serializeData<DataSource>(toMap(data.build.dataSources)),
+    resources: serializeData<Resource>(toMap(data.build.resources)),
+    instances: serializeData<Instance>(toMap(data.build.instances)),
+  };
+};
 
 const getImportedPreviewImageAssetId = (data: ProjectBundle) => {
   const socialImageAssetId = getHomePage(migratePages(data.build.pages)).meta

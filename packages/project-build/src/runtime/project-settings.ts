@@ -1,25 +1,51 @@
-import type {
-  Breakpoint,
-  CompilerSettings,
-  PageRedirect,
-  ProjectMeta,
-} from "@webstudio-is/sdk";
+import type { Breakpoint, PageRedirect } from "@webstudio-is/sdk";
 import {
   breakpoint,
   compilerSettings,
   pageRedirect,
   projectMeta,
+  projectNewRedirectPath,
+  redirectSourcePath,
 } from "@webstudio-is/sdk";
 import { z } from "zod";
 import {
   compactBuilderPatchPayload,
   type BuilderPatchChange,
 } from "../contracts/patch";
+import {
+  validateContactEmail,
+  validateProjectAuth,
+} from "../contracts/project-settings";
 import type { BuilderState } from "../state/builder-state";
 import { hasReachedBreakpointLimit, isBaseBreakpoint } from "./breakpoints";
-import { throwBuilderRuntimeError } from "./errors";
+import type { BuilderRuntimeContext } from "./context";
+import {
+  getZodValidationIssueOptions,
+  throwBuilderRuntimeError,
+  throwBuilderValidationError,
+} from "./errors";
+import { runtimeGeneratedIdInput } from "./generated-id-input";
 import { createRuntimeMutation } from "./mutation";
 import { getRequiredPages } from "./pages";
+import {
+  marketplaceProduct,
+  type MarketplaceProduct,
+} from "../shared/marketplace";
+import {
+  doesRedirectSourceOverridePagePath,
+  hasInvalidLocalTargetParams,
+  hasNamedSplat,
+  normalizeRedirectSource,
+  stripRedirectSourceFragment,
+} from "./redirect-source";
+
+export {
+  parseProjectAuthRoutes,
+  validateContactEmail,
+  validateProjectAuth,
+  validateProjectAuthRoute,
+  validateProjectAuthRouteSyntax,
+} from "../contracts/project-settings";
 
 const getRequiredBreakpoints = (state: Pick<BuilderState, "breakpoints">) => {
   if (state.breakpoints === undefined) {
@@ -31,60 +57,103 @@ const getRequiredBreakpoints = (state: Pick<BuilderState, "breakpoints">) => {
   return state.breakpoints;
 };
 
-type Settable<T> = {
-  [Property in keyof T]?: T[Property] | null;
+const getRequiredProjectSettings = (
+  state: Pick<BuilderState, "projectSettings">
+) => {
+  if (state.projectSettings === undefined) {
+    return throwBuilderRuntimeError(
+      "BAD_REQUEST",
+      "Project settings namespace is missing"
+    );
+  }
+  return state.projectSettings;
 };
 
-export const projectSettingsUpdateInput = z.object({
-  meta: z.record(z.unknown()).optional(),
-  compiler: z.record(z.unknown()).optional(),
-});
+const createSettableObjectInput = <Shape extends z.ZodRawShape>(
+  schema: z.ZodObject<Shape>
+) =>
+  z
+    .object(
+      Object.fromEntries(
+        Object.entries(schema.shape).map(([name, value]) => [
+          name,
+          (value as z.ZodTypeAny).nullable().optional(),
+        ])
+      ) as unknown as {
+        [Name in keyof Shape]: z.ZodOptional<z.ZodNullable<Shape[Name]>>;
+      }
+    )
+    .strict();
 
-const projectMetaKeys: ReadonlySet<string> = new Set(
-  projectMeta.keyof().options
-);
-const compilerSettingKeys: ReadonlySet<string> = new Set(
-  compilerSettings.keyof().options
-);
+const projectMetaUpdateInput = createSettableObjectInput(projectMeta);
+const compilerSettingsUpdateInput = createSettableObjectInput(compilerSettings);
 
-const omitNullValues = (input: Record<string, unknown>) =>
-  Object.fromEntries(
-    Object.entries(input).filter(([, value]) => value !== null)
+export const projectSettingsUpdateInput = z
+  .object({
+    meta: projectMetaUpdateInput.optional(),
+    compiler: compilerSettingsUpdateInput.optional(),
+  })
+  .strict()
+  .refine(
+    ({ meta, compiler }) =>
+      (meta !== undefined && Object.keys(meta).length > 0) ||
+      (compiler !== undefined && Object.keys(compiler).length > 0),
+    getZodValidationIssueOptions({
+      code: "empty_project_settings_update",
+      path: [],
+      message: "Provide at least one project setting to update.",
+      constraint: "at_least_one_of:meta,compiler",
+      example: { meta: { siteName: "Acme" } },
+    })
+  )
+  .describe(
+    "Update at least one supported project meta or compiler setting. Null removes a setting."
   );
 
-const parseProjectMeta = (input: Record<string, unknown>) => {
-  const result = projectMeta.partial().safeParse(omitNullValues(input));
-  if (result.success === false) {
-    return throwBuilderRuntimeError("BAD_REQUEST", result.error.message);
-  }
-  const values: Settable<ProjectMeta> = { ...result.data };
-  for (const [name, value] of Object.entries(input)) {
-    if (value === null && projectMetaKeys.has(name)) {
-      values[name as keyof ProjectMeta] = null;
+export const marketplaceProductUpdateInput = marketplaceProduct;
+
+const validateProjectMetaUpdate = (
+  values: z.infer<typeof projectMetaUpdateInput>
+) => {
+  if (typeof values.contactEmail === "string") {
+    const contactEmailError = validateContactEmail(values.contactEmail);
+    if (contactEmailError !== undefined) {
+      return throwBuilderValidationError(contactEmailError, [
+        {
+          code: "invalid_contact_email",
+          path: ["meta", "contactEmail"],
+          message: contactEmailError,
+          constraint: "comma_separated_email_addresses",
+          example: "team@example.com",
+        },
+      ]);
     }
   }
-  return values;
-};
-
-const parseCompilerSettings = (input: Record<string, unknown>) => {
-  const result = compilerSettings.partial().safeParse(omitNullValues(input));
-  if (result.success === false) {
-    return throwBuilderRuntimeError("BAD_REQUEST", result.error.message);
-  }
-  const values: Settable<CompilerSettings> = { ...result.data };
-  for (const [name, value] of Object.entries(input)) {
-    if (value === null && compilerSettingKeys.has(name)) {
-      values[name as keyof CompilerSettings] = null;
+  if (typeof values.auth === "string") {
+    const authError = validateProjectAuth(values.auth);
+    if (authError !== undefined) {
+      return throwBuilderValidationError(authError, [
+        {
+          code: "invalid_project_auth",
+          path: ["meta", "auth"],
+          message: "Invalid project authentication configuration",
+          constraint: "valid_webstudio_auth_json",
+          example: '{"version":1,"routes":{}}',
+          detail: authError,
+        },
+      ]);
     }
   }
-  return values;
 };
 
-export const getProjectSettings = (state: Pick<BuilderState, "pages">) => {
+export const getProjectSettings = (
+  state: Pick<BuilderState, "pages" | "projectSettings">
+) => {
   const pages = getRequiredPages(state);
+  const settings = getRequiredProjectSettings(state);
   return {
-    meta: pages.meta ?? {},
-    compiler: pages.compiler ?? {},
+    meta: settings.meta,
+    compiler: settings.compiler,
     redirects: pages.redirects ?? [],
   };
 };
@@ -101,7 +170,9 @@ const pushObjectFieldPatches = ({
   values: Record<string, unknown>;
 }) => {
   if (current === undefined) {
-    const next = omitNullValues(values);
+    const next = Object.fromEntries(
+      Object.entries(values).filter(([, value]) => value !== null)
+    );
     if (Object.keys(next).length > 0) {
       patches.push({ op: "add", path: basePath, value: next });
     }
@@ -115,6 +186,9 @@ const pushObjectFieldPatches = ({
       }
       continue;
     }
+    if (exists && Object.is(current[name], value)) {
+      continue;
+    }
     patches.push({
       op: exists ? "replace" : "add",
       path: [...basePath, name],
@@ -124,34 +198,69 @@ const pushObjectFieldPatches = ({
 };
 
 export const updateProjectSettings = (
-  state: Pick<BuilderState, "pages">,
+  state: Pick<BuilderState, "projectSettings">,
   input: z.infer<typeof projectSettingsUpdateInput>
 ) => {
-  const pages = getRequiredPages(state);
+  const settings = getRequiredProjectSettings(state);
   const patches: BuilderPatchChange["patches"] = [];
   if (input.meta !== undefined) {
-    const values = parseProjectMeta(input.meta);
+    validateProjectMetaUpdate(input.meta);
     pushObjectFieldPatches({
       patches,
       basePath: ["meta"],
-      current: pages.meta,
-      values,
+      current: settings.meta,
+      values: input.meta,
     });
   }
   if (input.compiler !== undefined) {
-    const values = parseCompilerSettings(input.compiler);
     pushObjectFieldPatches({
       patches,
       basePath: ["compiler"],
-      current: pages.compiler,
-      values,
+      current: settings.compiler,
+      values: input.compiler,
     });
   }
   return createRuntimeMutation({
-    payload: compactBuilderPatchPayload([{ namespace: "pages", patches }]),
-    result: { updated: true },
-    invalidatesNamespaces: ["pages"],
+    payload: compactBuilderPatchPayload([
+      { namespace: "projectSettings", patches },
+    ]),
+    result: { updated: patches.length > 0 },
+    invalidatesNamespaces: patches.length === 0 ? [] : ["projectSettings"],
   });
+};
+
+export const updateMarketplaceProduct = (
+  state: Pick<BuilderState, "marketplaceProduct">,
+  input: MarketplaceProduct
+) => {
+  if (state.marketplaceProduct === undefined) {
+    return throwBuilderRuntimeError(
+      "BAD_REQUEST",
+      "Marketplace product namespace is missing"
+    );
+  }
+  return createRuntimeMutation({
+    payload: compactBuilderPatchPayload([
+      {
+        namespace: "marketplaceProduct",
+        patches: [{ op: "replace", path: [], value: input }],
+      },
+    ]),
+    result: { updated: true },
+    invalidatesNamespaces: ["marketplaceProduct"],
+  });
+};
+
+export const getMarketplaceProduct = (
+  state: Pick<BuilderState, "marketplaceProduct">
+) => {
+  if (state.marketplaceProduct === undefined) {
+    return throwBuilderRuntimeError(
+      "BAD_REQUEST",
+      "Marketplace product namespace is missing"
+    );
+  }
+  return { marketplaceProduct: state.marketplaceProduct };
 };
 
 export const listRedirects = (state: Pick<BuilderState, "pages">) => ({
@@ -183,6 +292,94 @@ export const redirectDeleteInput = z.object({
   old: z.string(),
 });
 
+export const redirectSetAllInput = z.object({
+  redirects: z.array(redirectFieldsInput),
+});
+
+export type RedirectSourceValidationResult = {
+  errors: string[];
+  warnings: string[];
+};
+
+export const unsupportedRedirectTargetParamMessage =
+  "Target route params must match params from the source path";
+
+export const validateRedirectSource = ({
+  source,
+  redirects,
+  existingPaths,
+}: {
+  source: string;
+  redirects: readonly PageRedirect[];
+  existingPaths: ReadonlySet<string>;
+}): RedirectSourceValidationResult => {
+  const sourceValidationResult = redirectSourcePath.safeParse(source);
+
+  if (sourceValidationResult.success === false) {
+    return {
+      errors: sourceValidationResult.error.format()._errors,
+      warnings: [],
+    };
+  }
+
+  if (hasNamedSplat(source)) {
+    return {
+      errors: ["Named splats are not supported; use * instead"],
+      warnings: [],
+    };
+  }
+
+  const sourceWithoutFragment = stripRedirectSourceFragment(source);
+  const sourcePath = normalizeRedirectSource(source);
+  const warnings =
+    sourceWithoutFragment === source
+      ? []
+      : ["Source fragments are ignored because browsers do not send them"];
+
+  if (
+    redirects.some(
+      (redirect) => normalizeRedirectSource(redirect.old) === sourcePath
+    )
+  ) {
+    return {
+      errors: ["This path is already being redirected"],
+      warnings,
+    };
+  }
+
+  if (
+    Array.from(existingPaths).some((pagePath) =>
+      doesRedirectSourceOverridePagePath(sourcePath, pagePath)
+    )
+  ) {
+    return {
+      errors: [],
+      warnings: [...warnings, "This redirect will override an existing page"],
+    };
+  }
+
+  return { errors: [], warnings };
+};
+
+export const validateRedirectTarget = ({
+  target,
+  source,
+}: {
+  target: string;
+  source?: string;
+}): string[] => {
+  const targetValidationResult = projectNewRedirectPath.safeParse(target);
+  if (targetValidationResult.success === false) {
+    return targetValidationResult.error.format()._errors;
+  }
+
+  if (hasInvalidLocalTargetParams(target, source)) {
+    return [unsupportedRedirectTargetParamMessage];
+  }
+
+  return [];
+};
+
 const findRedirectIndex = (
   redirects: NonNullable<ReturnType<typeof getRequiredPages>["redirects"]>,
   oldPath: string
@@ -193,7 +390,43 @@ const parseRedirect = (input: PageRedirect) => {
   if (result.success === false) {
     return throwBuilderRuntimeError("BAD_REQUEST", result.error.message);
   }
+  if (hasNamedSplat(result.data.old)) {
+    return throwBuilderRuntimeError(
+      "BAD_REQUEST",
+      "Named splats are not supported; use * instead"
+    );
+  }
+  if (hasInvalidLocalTargetParams(result.data.new, result.data.old)) {
+    return throwBuilderRuntimeError(
+      "BAD_REQUEST",
+      "Target route params must match params from the source path"
+    );
+  }
   return result.data;
+};
+
+const findNormalizedRedirectIndex = (
+  redirects: NonNullable<ReturnType<typeof getRequiredPages>["redirects"]>,
+  oldPath: string
+) => {
+  const normalizedOldPath = normalizeRedirectSource(oldPath);
+  return redirects.findIndex(
+    (redirect) => normalizeRedirectSource(redirect.old) === normalizedOldPath
+  );
+};
+
+const assertUniqueRedirectSources = (redirects: PageRedirect[]) => {
+  const sources = new Set<string>();
+  for (const redirect of redirects) {
+    const source = normalizeRedirectSource(redirect.old);
+    if (sources.has(source)) {
+      return throwBuilderRuntimeError(
+        "CONFLICT",
+        `Duplicate redirect source "${redirect.old}"`
+      );
+    }
+    sources.add(source);
+  }
 };
 
 export const createRedirect = (
@@ -203,7 +436,7 @@ export const createRedirect = (
   const pages = getRequiredPages(state);
   const value = parseRedirect(input);
   const redirects = pages.redirects ?? [];
-  if (findRedirectIndex(redirects, value.old) !== -1) {
+  if (findNormalizedRedirectIndex(redirects, value.old) !== -1) {
     return throwBuilderRuntimeError("CONFLICT", "Redirect already exists");
   }
   const patches: BuilderPatchChange["patches"] = [];
@@ -235,7 +468,7 @@ export const updateRedirect = (
   if (
     input.values.old !== undefined &&
     input.values.old !== input.old &&
-    findRedirectIndex(redirects, input.values.old) !== -1
+    findNormalizedRedirectIndex(redirects, input.values.old) !== -1
   ) {
     return throwBuilderRuntimeError("CONFLICT", "Redirect already exists");
   }
@@ -292,22 +525,47 @@ export const deleteRedirect = (
   });
 };
 
+export const setRedirects = (
+  state: Pick<BuilderState, "pages">,
+  input: z.infer<typeof redirectSetAllInput>
+) => {
+  const pages = getRequiredPages(state);
+  const redirects = input.redirects.map(parseRedirect);
+  assertUniqueRedirectSources(redirects);
+  return createRuntimeMutation({
+    payload: [
+      {
+        namespace: "pages",
+        patches: [
+          {
+            op: pages.redirects === undefined ? "add" : "replace",
+            path: ["redirects"],
+            value: redirects,
+          },
+        ],
+      },
+    ],
+    result: { count: redirects.length },
+    invalidatesNamespaces: ["pages"],
+  });
+};
+
 export const listBreakpoints = (state: Pick<BuilderState, "breakpoints">) => ({
   breakpoints: Array.from(getRequiredBreakpoints(state).values()),
 });
 
 export const breakpointFieldsInput = z.object({
-  id: z.string(),
+  id: runtimeGeneratedIdInput,
   label: z.string(),
-  minWidth: z.number().optional(),
-  maxWidth: z.number().optional(),
+  minWidth: z.number().nonnegative().optional(),
+  maxWidth: z.number().nonnegative().optional(),
   condition: z.string().optional(),
 });
 
 export const breakpointUpdateFieldsInput = z.object({
   label: z.string().optional(),
-  minWidth: z.number().nullable().optional(),
-  maxWidth: z.number().nullable().optional(),
+  minWidth: z.number().nonnegative().nullable().optional(),
+  maxWidth: z.number().nonnegative().nullable().optional(),
   condition: z.string().nullable().optional(),
 });
 
@@ -332,13 +590,15 @@ const parseBreakpoint = (input: Breakpoint) => {
 
 export const createBreakpoint = (
   state: Pick<BuilderState, "breakpoints">,
-  input: z.infer<typeof breakpointCreateInput>
+  input: z.infer<typeof breakpointCreateInput>,
+  context: BuilderRuntimeContext
 ) => {
   const breakpoints = getRequiredBreakpoints(state);
-  if (breakpoints.has(input.id)) {
+  const breakpointId = context.createId();
+  if (breakpoints.has(breakpointId)) {
     return throwBuilderRuntimeError("CONFLICT", "Breakpoint already exists");
   }
-  const value = parseBreakpoint(input);
+  const value = parseBreakpoint({ ...input, id: breakpointId });
   const canHaveOnlyOneBaseBreakpoint =
     value.condition === undefined && isBaseBreakpoint(value);
   if (
@@ -365,10 +625,10 @@ export const createBreakpoint = (
     payload: [
       {
         namespace: "breakpoints",
-        patches: [{ op: "add", path: [value.id], value }],
+        patches: [{ op: "add", path: [breakpointId], value }],
       },
     ],
-    result: { breakpointId: value.id },
+    result: { breakpointId },
     invalidatesNamespaces: ["breakpoints"],
   });
 };

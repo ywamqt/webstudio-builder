@@ -1,6 +1,4 @@
 import { useId } from "react";
-import * as bcp47 from "bcp-47";
-import { z } from "zod";
 import {
   Box,
   Checkbox,
@@ -12,51 +10,21 @@ import {
   TextArea,
   theme,
 } from "@webstudio-is/design-system";
-import { isLiteralExpression, pageTitle } from "@webstudio-is/sdk";
+import { isLiteralExpression } from "@webstudio-is/sdk";
 import {
   BindingControl,
   BindingPopover,
 } from "~/builder/shared/binding-popover";
-import { computeExpression } from "@webstudio-is/project-build/runtime/data";
+import { computeExpression } from "@webstudio-is/project-build/runtime";
+import type {
+  PageSettingsErrors,
+  PageSettingsValues,
+} from "@webstudio-is/project-build/runtime";
 import { useStore } from "@nanostores/react";
-import { $assets, $pages } from "~/shared/sync/data-stores";
+import { $assets, $projectSettings } from "~/shared/sync/data-stores";
 import { $pageRootScope } from "../page-utils";
 import { SearchPreview } from "../search-preview";
-import { usePageUrl, type Errors, type OnChange, type Values } from "./shared";
-
-const emptyString = z.string().refine((string) => string === "");
-
-const language = z
-  .string()
-  .refine(
-    (value) => bcp47.parse(value).language !== null,
-    "The language is invalid"
-  );
-
-const searchValues = z.object({
-  title: pageTitle,
-  description: z.string().optional(),
-  excludePageFromSearch: z.boolean().optional(),
-  language: language.or(emptyString),
-});
-
-export const validateSearchSection = (
-  values: Values,
-  variableValues: Map<string, unknown>
-): Errors => {
-  const parsedResult = searchValues.safeParse({
-    title:
-      computeExpression(values.title, variableValues) ??
-      "exclude from validation",
-    description: computeExpression(values.description, variableValues),
-    excludePageFromSearch: computeExpression(
-      values.excludePageFromSearch,
-      variableValues
-    ),
-    language: computeExpression(values.language, variableValues),
-  });
-  return parsedResult.success ? {} : parsedResult.error.formErrors.fieldErrors;
-};
+import { computePageSettingsText, usePageUrl, type OnChange } from "./shared";
 
 const LanguageField = ({
   errors,
@@ -95,7 +63,7 @@ const LanguageField = ({
             id={id}
             placeholder="en-US"
             disabled={disabled || isLiteralExpression(value) === false}
-            value={String(computeExpression(value, variableValues))}
+            value={computePageSettingsText(value, variableValues)}
             onChange={(event) => onChange(JSON.stringify(event.target.value))}
           />
         </InputErrorsTooltip>
@@ -114,8 +82,8 @@ export const SearchSection = ({
   showBindingControls = true,
   onChange,
 }: {
-  values: Values;
-  errors: Errors;
+  values: PageSettingsValues;
+  errors: PageSettingsErrors;
   canEditTitle?: boolean;
   canEditDescription?: boolean;
   canEditExcludePageFromSearch?: boolean;
@@ -128,13 +96,14 @@ export const SearchSection = ({
   const excludePageFromSearchId = useId();
   const { variableValues, scope, aliases } = useStore($pageRootScope);
   const assets = useStore($assets);
-  const pages = useStore($pages);
+  const projectSettings = useStore($projectSettings);
   const pageUrl = usePageUrl(values);
-  const faviconAsset = assets.get(pages?.meta?.faviconAssetId ?? "");
+  const faviconAsset = assets.get(projectSettings?.meta.faviconAssetId ?? "");
   const faviconUrl = faviconAsset?.type === "image" ? faviconAsset.name : "";
-  const title = String(computeExpression(values.title, variableValues));
-  const description = String(
-    computeExpression(values.description, variableValues)
+  const title = computePageSettingsText(values.title, variableValues);
+  const description = computePageSettingsText(
+    values.description,
+    variableValues
   );
   const excludePageFromSearch = Boolean(
     computeExpression(values.excludePageFromSearch, variableValues)
@@ -164,7 +133,7 @@ export const SearchSection = ({
               }}
             >
               <SearchPreview
-                siteName={pages?.meta?.siteName ?? ""}
+                siteName={projectSettings?.meta.siteName ?? ""}
                 faviconUrl={faviconUrl}
                 pageUrl={pageUrl}
                 titleLink={title}

@@ -1,8 +1,10 @@
 import { join } from "node:path";
+import { readdirSync } from "node:fs";
 import envPaths from "env-paths";
 import { z } from "zod";
 
-const GLOBAL_CONFIG_FOLDER = envPaths("webstudio").config;
+const GLOBAL_CONFIG_FOLDER =
+  process.env.WEBSTUDIO_CONFIG_DIR ?? envPaths("webstudio").config;
 const GLOBAL_CONFIG_FILE_NAME = "webstudio-config.json";
 export const GLOBAL_CONFIG_FILE = join(
   GLOBAL_CONFIG_FOLDER,
@@ -23,6 +25,7 @@ export const jsonToLocalConfig = (json: unknown) => {
 };
 
 const zGlobalConfig = z.record(
+  z.string(),
   z
     .union([
       z.object({
@@ -97,3 +100,14 @@ export const INTERNAL_TEMPLATES = [
     expand: ["react-router", "react-router-cloudflare"],
   },
 ];
+
+const templateRoot = new URL(
+  /* @vite-ignore */ "../templates",
+  import.meta.url
+);
+
+export const getAvailableTemplateNames = () =>
+  readdirSync(templateRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();

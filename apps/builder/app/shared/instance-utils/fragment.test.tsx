@@ -1,10 +1,10 @@
 import {
-  __testing__,
+  fragmentTesting,
   detectFragmentTokenConflicts,
   detectPageTokenConflicts,
   extractWebstudioFragment,
   insertWebstudioFragmentCopy,
-} from "@webstudio-is/project-build/runtime/fragment";
+} from "@webstudio-is/project-build/runtime";
 import { getWebstudioData } from "./data";
 import { enableMapSet } from "immer";
 import { describe, test, expect, beforeEach } from "vitest";
@@ -46,14 +46,14 @@ import {
   $resources,
 } from "~/shared/sync/data-stores";
 import { registerContainers } from "../sync/sync-stores";
-import { getInstancePath } from "../nano-states";
-import { isFragmentContentModeCopyableProp } from "../content-mode-copy-policy";
+import { getInstancePath } from "@webstudio-is/project-build/runtime";
+import { isFragmentContentModeCopyableProp } from "@webstudio-is/project-build/runtime";
 
 const {
   getFragmentInstancesData,
   insertFragmentAssetsMutable,
   insertFragmentBreakpointsMutable,
-} = __testing__;
+} = fragmentTesting;
 
 enableMapSet();
 registerContainers();
@@ -234,7 +234,7 @@ describe("fragment copy helpers", () => {
     ]);
     let didMergeDueToLimit = false;
 
-    const mergedBreakpointIds = insertFragmentBreakpointsMutable({
+    const { mergedBreakpointIds } = insertFragmentBreakpointsMutable({
       fragment: createFragment({
         breakpoints: [
           baseBreakpoint,

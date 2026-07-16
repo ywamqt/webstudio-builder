@@ -25,9 +25,9 @@ import {
   parseRedirects,
   type ParsedRedirect,
   type SkippedLine,
-} from "~/shared/redirects/redirect-parsers";
-import { detectLoopsInBatch } from "~/shared/redirects/redirect-loop-detection";
-import { normalizeRedirectSource } from "~/shared/redirects/redirect-source";
+} from "@webstudio-is/project-build/runtime";
+import { detectLoopsInBatch } from "@webstudio-is/project-build/runtime";
+import { normalizeRedirectSource } from "@webstudio-is/project-build/runtime";
 
 type ImportStep = "input" | "preview";
 type MergeMode = "add" | "replace";

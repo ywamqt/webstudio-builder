@@ -2,11 +2,14 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createBuilderStateFromSnapshot } from "@webstudio-is/project-build/state/adapters";
-import { createBuilderStateFreshness } from "@webstudio-is/project-build/state/freshness";
+import { createBuilderStateFromSnapshot } from "@webstudio-is/project-build/state";
+import { createBuilderStateFreshness } from "@webstudio-is/project-build/state";
 import {
+  createLocalProjectBundleFromSessionSnapshot,
   createCliProjectSessionStorage,
   createCliProjectSessionTransport,
+  getCliServerApiContract,
+  getSupportedPublicApiOperations,
 } from "./project-session";
 
 const temporaryDirectories: string[] = [];
@@ -124,6 +127,157 @@ describe("cli project session storage", () => {
   });
 });
 
+describe("CLI/server operation contract", () => {
+  const connection = {
+    projectId: "project-1",
+    origin: "https://example.com",
+    authToken: "token",
+  };
+
+  test("uses the server operation catalog to hide unsupported server-only operations", async () => {
+    const contract = await getCliServerApiContract(connection, async () => ({
+      apiContract: {
+        version: "public-api:server",
+        operationIds: ["auth.me"],
+      },
+    }));
+
+    expect(contract).toMatchObject({
+      serverVersion: "public-api:server",
+      negotiated: true,
+    });
+    expect(contract.supportedOperationIds.has("auth.me")).toBe(true);
+    expect(
+      getSupportedPublicApiOperations(contract).some(
+        (operation) => operation.id === "auth.me"
+      )
+    ).toBe(true);
+    expect(
+      getSupportedPublicApiOperations(contract).some(
+        (operation) => operation.serverOnly && operation.id !== "auth.me"
+      )
+    ).toBe(false);
+  });
+
+  test("keeps established local operations on legacy servers but hides new routed operations", async () => {
+    const contract = await getCliServerApiContract(connection, async () => ({
+      canView: true,
+    }));
+    const operations = getSupportedPublicApiOperations(contract);
+
+    expect(contract.negotiated).toBe(false);
+    expect(
+      operations.some((operation) => operation.command === "list-pages")
+    ).toBe(true);
+    expect(
+      operations.some((operation) => operation.command === "insert-component")
+    ).toBe(false);
+    expect(
+      operations.some((operation) => operation.command === "insert-fragment")
+    ).toBe(false);
+    expect(operations.some((operation) => operation.serverOnly)).toBe(false);
+  });
+});
+
+test("creates preview bundle from project session snapshot", () => {
+  const marketplaceProduct = {
+    category: "pageTemplates" as const,
+    name: "Session template",
+    thumbnailAssetId: "asset-1",
+    author: "Webstudio",
+    email: "hello@example.com",
+    website: "https://example.com",
+    issues: "",
+    description: "A reusable project-session template.",
+  };
+  const state = createBuilderStateFromSnapshot({
+    marketplaceProduct,
+    pages: {
+      homePageId: "home",
+      rootFolderId: "root",
+      meta: { siteName: "Session Site" },
+      pages: new Map([
+        [
+          "home",
+          {
+            id: "home",
+            name: "Home",
+            path: "",
+            title: "Home",
+            rootInstanceId: "body",
+            meta: {},
+          },
+        ],
+        [
+          "design-system",
+          {
+            id: "design-system",
+            name: "Design System",
+            path: "/design-system",
+            title: "Design System",
+            rootInstanceId: "design-system-body",
+            meta: {},
+          },
+        ],
+      ]),
+      folders: new Map([
+        [
+          "root",
+          {
+            id: "root",
+            name: "Root",
+            slug: "",
+            children: ["home", "design-system"],
+          },
+        ],
+      ]),
+    },
+    instances: [
+      [
+        "body",
+        { type: "instance", id: "body", component: "Body", children: [] },
+      ],
+      [
+        "design-system-body",
+        {
+          type: "instance",
+          id: "design-system-body",
+          component: "Body",
+          children: [],
+        },
+      ],
+    ],
+  });
+
+  const bundle = createLocalProjectBundleFromSessionSnapshot(
+    {
+      projectId: "project",
+      buildId: "build",
+      version: 7,
+      state,
+      freshness: createBuilderStateFreshness({ state, version: 7 }),
+      compatibilityVersion: "test",
+      compatibility: {
+        sessionVersion: "test",
+        runtimeContractVersion: "test-runtime",
+        projectSchemaVersion: "test-schema",
+      },
+    },
+    { origin: "https://assets.example.com" }
+  );
+
+  expect(bundle.origin).toBe("https://assets.example.com");
+  expect(bundle.projectTitle).toBe("Session Site");
+  expect(bundle.page.id).toBe("home");
+  expect(bundle.pages.map((page) => page.path)).toEqual(["", "/design-system"]);
+  expect(bundle.build.pages.pages).toEqual(bundle.pages);
+  expect(bundle.build.instances.map(([id]) => id)).toEqual([
+    "body",
+    "design-system-body",
+  ]);
+  expect(bundle.build.marketplaceProduct).toEqual(marketplaceProduct);
+});
+
 describe("cli project session transport", () => {
   test("adapts public API build snapshots into project-session state", async () => {
     const transport = createCliProjectSessionTransport({
@@ -133,7 +287,12 @@ describe("cli project session transport", () => {
         authToken: "token",
       },
       getBuildSnapshot: async (input) => {
-        expect(input.include).toEqual(["pages", "folders", "instances"]);
+        expect(input.include).toEqual([
+          "pages",
+          "folders",
+          "instances",
+          "projectSettings",
+        ]);
         return {
           projectId: "project-1",
           buildId: "build-1",
@@ -148,11 +307,24 @@ describe("cli project session transport", () => {
               meta: {},
             },
           ],
+          pageTemplates: [
+            {
+              id: "template-1",
+              name: "Landing",
+              title: "Landing",
+              rootInstanceId: "template-body",
+              meta: {},
+            },
+          ],
           homePageId: "home",
           rootFolderId: "root",
           meta: { siteName: "Acme" },
           compiler: { atomicStyles: true },
           redirects: [{ old: "/old", new: "/new", status: "301" }],
+          projectSettings: {
+            meta: { siteName: "Canonical Acme" },
+            compiler: { atomicStyles: false },
+          },
           folders: [
             {
               id: "root",
@@ -175,12 +347,15 @@ describe("cli project session transport", () => {
 
     const snapshot = await transport.fetchNamespaces({
       projectId: "project-1",
-      namespaces: ["pages", "instances"],
+      namespaces: ["pages", "instances", "projectSettings"],
     });
 
     expect(snapshot.state.pages?.pages.get("home")?.name).toBe("Home");
-    expect(snapshot.state.pages?.meta).toEqual({ siteName: "Acme" });
-    expect(snapshot.state.pages?.compiler).toEqual({ atomicStyles: true });
+    expect(snapshot.state.pages?.pageTemplates?.get("template-1")?.name).toBe(
+      "Landing"
+    );
+    expect(snapshot.state.pages?.meta).toBeUndefined();
+    expect(snapshot.state.pages?.compiler).toBeUndefined();
     expect(snapshot.state.pages?.redirects).toEqual([
       { old: "/old", new: "/new", status: "301" },
     ]);
@@ -188,6 +363,89 @@ describe("cli project session transport", () => {
       "home",
     ]);
     expect(snapshot.state.instances?.get("body")?.component).toBe("Body");
+    expect(snapshot.state.projectSettings).toEqual({
+      meta: { siteName: "Canonical Acme" },
+      compiler: { atomicStyles: false },
+    });
+  });
+
+  test("falls back to legacy page settings when the server rejects projectSettings", async () => {
+    const includes: unknown[] = [];
+    const transport = createCliProjectSessionTransport({
+      connection: {
+        projectId: "project-1",
+        origin: "https://example.com",
+        authToken: "token",
+      },
+      getBuildSnapshot: async (input) => {
+        includes.push(input.include);
+        if (input.include?.includes("projectSettings")) {
+          throw new Error(
+            'invalid_enum_value: received "projectSettings", expected one of pages|folders'
+          );
+        }
+        return {
+          projectId: "project-1",
+          buildId: "build-1",
+          version: 1,
+          pages: [
+            {
+              id: "home",
+              name: "Home",
+              path: "",
+              title: "Home",
+              rootInstanceId: "body",
+              meta: {},
+            },
+          ],
+          folders: [
+            {
+              id: "root",
+              name: "Root",
+              slug: "",
+              children: ["home"],
+            },
+          ],
+          homePageId: "home",
+          rootFolderId: "root",
+          meta: { siteName: "Legacy Acme" },
+          compiler: { atomicStyles: true },
+        };
+      },
+    });
+
+    const snapshot = await transport.fetchNamespaces({
+      projectId: "project-1",
+      namespaces: ["projectSettings"],
+    });
+
+    expect(includes).toEqual([["projectSettings"], ["pages", "folders"]]);
+    expect(snapshot.state.projectSettings).toEqual({
+      meta: { siteName: "Legacy Acme" },
+      compiler: { atomicStyles: true },
+    });
+  });
+
+  test("does not hide unrelated snapshot errors", async () => {
+    const getBuildSnapshot = vi.fn(async () => {
+      throw new Error("Network unavailable");
+    });
+    const transport = createCliProjectSessionTransport({
+      connection: {
+        projectId: "project-1",
+        origin: "https://example.com",
+        authToken: "token",
+      },
+      getBuildSnapshot,
+    });
+
+    await expect(
+      transport.fetchNamespaces({
+        projectId: "project-1",
+        namespaces: ["projectSettings"],
+      })
+    ).rejects.toThrow("Network unavailable");
+    expect(getBuildSnapshot).toHaveBeenCalledTimes(1);
   });
 
   test("adapts injected permission reader to project session transport", async () => {

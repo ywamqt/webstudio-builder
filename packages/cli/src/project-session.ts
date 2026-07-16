@@ -1,9 +1,19 @@
 import { readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { cwd } from "node:process";
-import { migratePages } from "@webstudio-is/project-migrations/pages";
+import {
+  migratePages,
+  serializePages,
+} from "@webstudio-is/project-migrations/pages";
 import * as httpClient from "@webstudio-is/http-client";
-import { publicApiOperations } from "@webstudio-is/protocol";
+import {
+  bundleVersion,
+  publicApiContractVersion,
+  publicApiOperationRequiresServerSupport,
+  publicApiOperations,
+  type PublishedProjectBundle,
+} from "@webstudio-is/protocol";
+import { getHomePage } from "@webstudio-is/sdk";
 import {
   createProjectSession,
   createDefaultProjectSessionCompatibility,
@@ -11,19 +21,21 @@ import {
   type ProjectSessionPersistedSnapshot,
   type ProjectSessionPermissions,
   type ProjectSessionRemoteSnapshot,
+  type ProjectSessionSnapshot,
   type ProjectSessionStorage,
   type ProjectSessionTransport,
 } from "@webstudio-is/project-build/project-session";
-import type { BuilderNamespace } from "@webstudio-is/project-build/contracts/namespaces";
+import type { BuilderNamespace } from "@webstudio-is/project-build/contracts";
 import {
   createBuilderStateFromBuildData,
   createBuilderStateFromSerializedSnapshot,
   createSerializedBuilderStateSnapshotFromState,
   type BuilderBuildDataSnapshot,
   type SerializedBuilderStateSnapshot,
-} from "@webstudio-is/project-build/state/adapters";
-import type { BuilderStateFreshness } from "@webstudio-is/project-build/state/freshness";
-import { LOCAL_CONFIG_FILE } from "./config";
+} from "@webstudio-is/project-build/state";
+import { removeLegacyProjectSettingsFromPages } from "@webstudio-is/project-build";
+import type { BuilderStateFreshness } from "@webstudio-is/project-build/state";
+import { LOCAL_CONFIG_FILE, LOCAL_DATA_FILE } from "./config";
 import { getStableErrorCode } from "./error-codes";
 import { writeFileAtomic } from "./fs-utils";
 
@@ -32,6 +44,81 @@ type ApiConnection = {
   origin: string;
   authToken: string;
   headers?: Record<string, string | undefined>;
+};
+
+export type CliServerApiContract = {
+  clientVersion: string;
+  serverVersion?: string;
+  supportedOperationIds: ReadonlySet<string>;
+  missingServerOperationIds: readonly string[];
+  negotiated: boolean;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && Array.isArray(value) === false;
+
+export const getCliServerApiContract = async (
+  connection: ApiConnection,
+  getProjectPermissions = httpClient.getProjectPermissions
+): Promise<CliServerApiContract> => {
+  const permissions = (await getProjectPermissions(connection)) as unknown;
+  const apiContract = isRecord(permissions)
+    ? permissions.apiContract
+    : undefined;
+  const serverVersion =
+    isRecord(apiContract) && typeof apiContract.version === "string"
+      ? apiContract.version
+      : undefined;
+  const operationIds =
+    isRecord(apiContract) && Array.isArray(apiContract.operationIds)
+      ? apiContract.operationIds.filter(
+          (operationId): operationId is string =>
+            typeof operationId === "string"
+        )
+      : [];
+  const supportedOperationIds = new Set(operationIds);
+  const missingServerOperationIds = publicApiOperations.flatMap((operation) =>
+    publicApiOperationRequiresServerSupport(operation) &&
+    supportedOperationIds.has(operation.id) === false
+      ? [operation.id]
+      : []
+  );
+  return {
+    clientVersion: publicApiContractVersion,
+    serverVersion,
+    supportedOperationIds,
+    missingServerOperationIds,
+    negotiated: serverVersion !== undefined,
+  };
+};
+
+export const getSupportedPublicApiOperations = (
+  contract: CliServerApiContract
+) =>
+  publicApiOperations.filter((operation) => {
+    if (contract.negotiated === false) {
+      return publicApiOperationRequiresServerSupport(operation) === false;
+    }
+    return (
+      publicApiOperationRequiresServerSupport(operation) === false ||
+      contract.supportedOperationIds.has(operation.id)
+    );
+  });
+
+export const assertCliServerOperationSupported = (
+  operationId: string,
+  contract: CliServerApiContract
+) => {
+  if (contract.supportedOperationIds.has(operationId)) {
+    return;
+  }
+  const serverVersion = contract.serverVersion ?? "unavailable (legacy server)";
+  throw Object.assign(
+    new Error(
+      `The configured Webstudio API does not advertise server operation "${operationId}". CLI contract: ${contract.clientVersion}. Server contract: ${serverVersion}. Run this command with the latest CLI once; if it still appears, retry after the Webstudio API deployment is updated.`
+    ),
+    { code: "API_CONTRACT_MISMATCH" }
+  );
 };
 
 type PublicBuildSnapshot = Omit<
@@ -44,10 +131,12 @@ type PublicBuildSnapshot = Omit<
   homePageId?: string;
   rootFolderId?: string;
   pages?: unknown;
+  pageTemplates?: unknown;
   folders?: unknown;
   meta?: unknown;
   compiler?: unknown;
   redirects?: unknown;
+  projectSettings?: BuilderBuildDataSnapshot["projectSettings"];
   dataSources?: BuilderBuildDataSnapshot["dataSources"];
   variables?: BuilderBuildDataSnapshot["dataSources"];
 };
@@ -78,10 +167,27 @@ const toPublicApiInclude = (namespaces: readonly BuilderNamespace[]) => [
       if (namespace === "pages") {
         return ["pages", "folders"];
       }
+      if (namespace === "projectSettings") {
+        return ["projectSettings"];
+      }
       return [namespace];
     })
   ),
 ];
+
+const isUnsupportedProjectSettingsIncludeError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("invalid_enum_value") &&
+    message.includes('received "projectSettings"')
+  );
+};
+
+const getLegacyPublicApiInclude = (namespaces: readonly BuilderNamespace[]) =>
+  toPublicApiInclude([
+    ...namespaces.filter((namespace) => namespace !== "projectSettings"),
+    "pages",
+  ]);
 
 const toPages = (snapshot: PublicBuildSnapshot) => {
   if (snapshot.pages === undefined) {
@@ -91,6 +197,7 @@ const toPages = (snapshot: PublicBuildSnapshot) => {
     homePageId: snapshot.homePageId,
     rootFolderId: snapshot.rootFolderId,
     pages: snapshot.pages,
+    pageTemplates: snapshot.pageTemplates,
     folders: snapshot.folders,
     meta: snapshot.meta,
     compiler: snapshot.compiler,
@@ -231,12 +338,25 @@ export const createCliProjectSessionTransport = ({
     return createCliProjectSessionCompatibility(connection);
   },
   async fetchNamespaces({ namespaces }) {
-    const snapshot = (await withMappedRemoteError(() =>
-      getBuildSnapshot({
-        ...connection,
-        include: toPublicApiInclude(namespaces),
-      })
-    )) as PublicBuildSnapshot;
+    const fetchSnapshot = (include: string[]) =>
+      withMappedRemoteError(() =>
+        getBuildSnapshot({
+          ...connection,
+          include,
+        })
+      ) as Promise<PublicBuildSnapshot>;
+    let snapshot: PublicBuildSnapshot;
+    try {
+      snapshot = await fetchSnapshot(toPublicApiInclude(namespaces));
+    } catch (error) {
+      if (
+        namespaces.includes("projectSettings") === false ||
+        isUnsupportedProjectSettingsIncludeError(error) === false
+      ) {
+        throw error;
+      }
+      snapshot = await fetchSnapshot(getLegacyPublicApiInclude(namespaces));
+    }
     return toRemoteSnapshot(snapshot);
   },
   async commitPatch({ baseVersion, transactions }) {
@@ -285,15 +405,11 @@ export const createCliProjectSession = ({
   storage = createCliProjectSessionStorage(),
   executeServerOperation,
   getPermissions,
-  createId = () => crypto.randomUUID(),
-  now = () => new Date(),
 }: {
   connection: ApiConnection;
   storage?: ProjectSessionStorage;
   executeServerOperation?: ProjectSessionTransport["executeServerOperation"];
   getPermissions?: ProjectSessionTransport["getPermissions"];
-  createId?: () => string;
-  now?: () => Date;
 }) =>
   createProjectSession({
     projectId: connection.projectId,
@@ -304,7 +420,6 @@ export const createCliProjectSession = ({
     }),
     storage,
     compatibilityVersion,
-    runtimeContext: { createId, now },
   });
 
 export type CliProjectSession = ReturnType<typeof createCliProjectSession>;
@@ -314,4 +429,61 @@ export type CliProjectSessionSnapshot = {
   buildId: string;
   version: number;
   freshness: BuilderStateFreshness;
+};
+
+export const createLocalProjectBundleFromSessionSnapshot = (
+  snapshot: ProjectSessionSnapshot,
+  options: { origin?: string } = {}
+): PublishedProjectBundle => {
+  const pages = snapshot.state.pages;
+  if (pages === undefined) {
+    throw new Error("Project session pages namespace is missing.");
+  }
+  const projectSettings = snapshot.state.projectSettings;
+  const persistedPages = removeLegacyProjectSettingsFromPages(
+    structuredClone(pages)
+  );
+  const serializedPages = serializePages(persistedPages);
+  const homePage = getHomePage(persistedPages);
+  return {
+    bundleVersion,
+    origin: options.origin,
+    projectDomain: "local-preview",
+    projectTitle:
+      projectSettings?.meta.siteName ??
+      persistedPages.meta?.siteName ??
+      "Webstudio Preview",
+    page: homePage,
+    pages: Array.from(persistedPages.pages.values()),
+    assets: Array.from(snapshot.state.assets?.values() ?? []),
+    build: {
+      id: snapshot.buildId,
+      projectId: snapshot.projectId,
+      version: snapshot.version,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      pages: serializedPages,
+      breakpoints: Array.from(snapshot.state.breakpoints?.entries() ?? []),
+      styles: Array.from(snapshot.state.styles?.entries() ?? []),
+      styleSources: Array.from(snapshot.state.styleSources?.entries() ?? []),
+      styleSourceSelections: Array.from(
+        snapshot.state.styleSourceSelections?.entries() ?? []
+      ),
+      props: Array.from(snapshot.state.props?.entries() ?? []),
+      instances: Array.from(snapshot.state.instances?.entries() ?? []),
+      dataSources: Array.from(snapshot.state.dataSources?.entries() ?? []),
+      resources: Array.from(snapshot.state.resources?.entries() ?? []),
+      marketplaceProduct: snapshot.state.marketplaceProduct,
+      projectSettings,
+    },
+  };
+};
+
+export const writeCliProjectSessionDataFile = async (
+  snapshot: ProjectSessionSnapshot,
+  path = join(cwd(), LOCAL_DATA_FILE),
+  options: { origin?: string } = {}
+) => {
+  const data = createLocalProjectBundleFromSessionSnapshot(snapshot, options);
+  await writeFileAtomic(path, `${JSON.stringify(data, undefined, 2)}\n`);
 };

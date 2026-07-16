@@ -27,9 +27,12 @@ import {
   getHomePage,
 } from "@webstudio-is/sdk";
 import {
-  findCycles,
   type MarketplaceProduct,
+  type ProjectSettings,
   marketplaceProduct,
+} from "@webstudio-is/project-build";
+import { findCycles } from "@webstudio-is/project-build/runtime";
+import {
   parsePages,
   serializePages,
   parseStyleSourceSelections,
@@ -41,12 +44,12 @@ import {
   parseInstanceData,
   serializeConfig,
   serializeData,
-} from "@webstudio-is/project-build";
+} from "@webstudio-is/project-build/persistence";
 import type {
   BuilderPatch,
   BuilderPatchTransaction,
-} from "@webstudio-is/project-build/contracts/patch";
-import { applyBuilderNamespacePatches } from "@webstudio-is/project-build/state/patch";
+} from "@webstudio-is/project-build/contracts";
+import { applyBuilderNamespacePatches } from "@webstudio-is/project-build/state";
 import type { Database } from "@webstudio-is/postgrest/index.server";
 
 type TouchedKeys = {
@@ -67,6 +70,23 @@ const addTouchedPatchKeys = (touched: TouchedKeys, patches: Patch[]) => {
       continue;
     }
     touched.keys.add(`${key}`);
+  }
+};
+
+const applyBuildNamespacePatches = <State>(
+  namespace: string,
+  state: State,
+  patches: Parameters<typeof applyBuilderNamespacePatches>[1]
+) => {
+  try {
+    return applyBuilderNamespacePatches(state, patches);
+  } catch (error) {
+    throw new Error(
+      `Cannot apply "${namespace}" patches: ${
+        error instanceof Error ? error.message : String(error)
+      }. Patches: ${JSON.stringify(patches)}`,
+      { cause: error }
+    );
   }
 };
 
@@ -162,6 +182,7 @@ export const createBuildPatchUpdate = async ({
     styleSourceSelections?: StyleSourceSelections;
     styles?: Styles;
     marketplaceProduct?: MarketplaceProduct;
+    projectSettings?: ProjectSettings;
   } = {};
 
   let previewImageAssetId: string | null | undefined = undefined;
@@ -186,7 +207,7 @@ export const createBuildPatchUpdate = async ({
         const pages = buildData.pages ?? parsePages(build.pages);
         const currentSocialImageAssetId =
           getHomePage(pages).meta.socialImageAssetId;
-        buildData.pages = applyBuilderNamespacePatches(pages, patches);
+        buildData.pages = applyBuildNamespacePatches("pages", pages, patches);
         const newSocialImageAssetId = getHomePage(buildData.pages).meta
           .socialImageAssetId;
         if (currentSocialImageAssetId !== newSocialImageAssetId) {
@@ -195,12 +216,29 @@ export const createBuildPatchUpdate = async ({
         continue;
       }
 
+      if (namespace === "projectSettings") {
+        const projectSettings =
+          buildData.projectSettings ??
+          parseConfig<ProjectSettings>(build.projectSettings);
+        const nextProjectSettings = applyBuildNamespacePatches(
+          "projectSettings",
+          projectSettings,
+          patches
+        );
+        buildData.projectSettings = nextProjectSettings;
+        continue;
+      }
+
       if (namespace === "instances") {
         addTouchedPatchKeys(touchedInstances, patches);
         const instances =
           buildData.instances ?? parseInstanceData(build.instances);
 
-        buildData.instances = applyBuilderNamespacePatches(instances, patches);
+        buildData.instances = applyBuildNamespacePatches(
+          "instances",
+          instances,
+          patches
+        );
 
         const cycles = findCycles(buildData.instances?.values() ?? []);
         if (cycles.length > 0) {
@@ -221,7 +259,7 @@ export const createBuildPatchUpdate = async ({
       if (namespace === "props") {
         addTouchedPatchKeys(touchedProps, patches);
         const props = buildData.props ?? parseData<Prop>(build.props);
-        buildData.props = applyBuilderNamespacePatches(props, patches);
+        buildData.props = applyBuildNamespacePatches("props", props, patches);
         continue;
       }
 
@@ -235,7 +273,8 @@ export const createBuildPatchUpdate = async ({
         const styleSourceSelections =
           buildData.styleSourceSelections ??
           parseStyleSourceSelections(build.styleSourceSelections);
-        buildData.styleSourceSelections = applyBuilderNamespacePatches(
+        buildData.styleSourceSelections = applyBuildNamespacePatches(
+          "styleSourceSelections",
           styleSourceSelections,
           patches
         );
@@ -246,7 +285,8 @@ export const createBuildPatchUpdate = async ({
         addTouchedPatchKeys(touchedStyleSources, patches);
         const styleSources =
           buildData.styleSources ?? parseData<StyleSource>(build.styleSources);
-        buildData.styleSources = applyBuilderNamespacePatches(
+        buildData.styleSources = applyBuildNamespacePatches(
+          "styleSources",
           styleSources,
           patches
         );
@@ -257,7 +297,11 @@ export const createBuildPatchUpdate = async ({
         addTouchedPatchKeys(touchedStyles, patches);
 
         const styles = buildData.styles ?? parseStyles(build.styles);
-        buildData.styles = applyBuilderNamespacePatches(styles, patches);
+        buildData.styles = applyBuildNamespacePatches(
+          "styles",
+          styles,
+          patches
+        );
         continue;
       }
 
@@ -265,7 +309,8 @@ export const createBuildPatchUpdate = async ({
         addTouchedPatchKeys(touchedDataSources, patches);
         const dataSources =
           buildData.dataSources ?? parseData<DataSource>(build.dataSources);
-        buildData.dataSources = applyBuilderNamespacePatches(
+        buildData.dataSources = applyBuildNamespacePatches(
+          "dataSources",
           dataSources,
           patches
         );
@@ -276,7 +321,11 @@ export const createBuildPatchUpdate = async ({
         addTouchedPatchKeys(touchedResources, patches);
         const resources =
           buildData.resources ?? parseData<Resource>(build.resources);
-        buildData.resources = applyBuilderNamespacePatches(resources, patches);
+        buildData.resources = applyBuildNamespacePatches(
+          "resources",
+          resources,
+          patches
+        );
         continue;
       }
 
@@ -284,7 +333,8 @@ export const createBuildPatchUpdate = async ({
         addTouchedPatchKeys(touchedBreakpoints, patches);
         const breakpoints =
           buildData.breakpoints ?? parseData<Breakpoint>(build.breakpoints);
-        buildData.breakpoints = applyBuilderNamespacePatches(
+        buildData.breakpoints = applyBuildNamespacePatches(
+          "breakpoints",
           breakpoints,
           patches
         );
@@ -296,7 +346,8 @@ export const createBuildPatchUpdate = async ({
           buildData.marketplaceProduct ??
           parseConfig<MarketplaceProduct>(build.marketplaceProduct);
 
-        buildData.marketplaceProduct = applyBuilderNamespacePatches(
+        buildData.marketplaceProduct = applyBuildNamespacePatches(
+          "marketplaceProduct",
           marketplaceProduct,
           patches
         );
@@ -377,6 +428,12 @@ export const createBuildPatchUpdate = async ({
     const marketplaceProductData = buildData.marketplaceProduct;
     update.marketplaceProduct = serializeConfig<MarketplaceProduct>(
       marketplaceProduct.parse(marketplaceProductData)
+    );
+  }
+
+  if (buildData.projectSettings) {
+    update.projectSettings = serializeConfig<ProjectSettings>(
+      buildData.projectSettings
     );
   }
 

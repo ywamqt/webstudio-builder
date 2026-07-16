@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import makeCLI from "yargs";
 import {
   getPublicApiOperation,
+  publicApiContractVersion,
   publicApiOperations,
 } from "@webstudio-is/protocol";
 import { apiCompatibilityHeaders } from "./api";
-import { apiCommand } from "./api-command";
+import { apiCommand, auditCommandOptions } from "./api-command";
+import type { CommonYargsArgv } from "./yargs-types";
 import { apiCommandMetadata } from "./api-command-metadata";
 
 const apiCalls = new Proxy({} as Record<string, ReturnType<typeof vi.fn>>, {
@@ -15,6 +18,7 @@ const apiCalls = new Proxy({} as Record<string, ReturnType<typeof vi.fn>>, {
 });
 const isFileExists = vi.fn();
 const readFile = vi.fn();
+const getServerApiContract = vi.fn();
 const apiClientByOperationId = new Map(
   publicApiOperations.map((operation) => [operation.id, operation.client])
 );
@@ -82,10 +86,12 @@ const dependencies = new Proxy(
     isFileExists,
     readFile,
     createCliProjectSession,
+    getServerApiContract,
   } as typeof apiCalls & {
     isFileExists: typeof isFileExists;
     readFile: typeof readFile;
     createCliProjectSession: typeof createCliProjectSession;
+    getServerApiContract: typeof getServerApiContract;
   },
   {
     get(target, property: string) {
@@ -112,8 +118,8 @@ const expectJsonOutput = (command: string) => {
         version: 1,
         source: expect.any(String),
         committed: expect.any(Boolean),
-        namespaces: { read: [], write: [], invalidated: [], missing: [] },
-        diagnostics: [],
+        namespaceCounts: { read: 0, write: 0, invalidated: 0, missing: 0 },
+        diagnosticCount: 0,
       },
     },
   });
@@ -155,6 +161,42 @@ const expectConnection = (extra = {}) =>
     ...extra,
   });
 
+const connectionFieldNames = new Set([
+  "origin",
+  "authToken",
+  "projectId",
+  "headers",
+]);
+
+const cliAdapterInputFieldsByCommand: Partial<
+  Record<Parameters<typeof apiCommand>[0]["command"], readonly string[]>
+> = {
+  "upload-asset": ["readAssetData"],
+  "upload-assets": ["readAssetData"],
+};
+
+const expectCallUsesDocumentedInputFields = (
+  call: ReturnType<typeof vi.fn>,
+  command: Parameters<typeof apiCommand>[0]["command"]
+) => {
+  const operation = getPublicApiOperation(command);
+  const actual = call.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+  const inputFields = Object.keys(actual).filter(
+    (key) => connectionFieldNames.has(key) === false
+  );
+  const allowedFields = new Set([
+    ...operation.inputFields,
+    ...(cliAdapterInputFieldsByCommand[command] ?? []),
+  ]);
+  const unknownFields = inputFields.filter(
+    (field) => !allowedFields.has(field)
+  );
+  expect(unknownFields).toEqual([]);
+  for (const field of operation.requiredInputFields) {
+    expect(inputFields).toContain(field);
+  }
+};
+
 const expectCommandCall = async ({
   options,
   call,
@@ -174,6 +216,7 @@ const expectCommandCall = async ({
   await apiCommand({ ...options, json: true }, dependencies);
 
   expect(call).toHaveBeenCalledWith(expectConnection(connection));
+  expectCallUsesDocumentedInputFields(call, options.command);
   expectJsonOutput(options.command);
 };
 
@@ -216,6 +259,16 @@ beforeEach(() => {
   isFileExists.mockResolvedValue(false);
   readFile.mockReset();
   createCliProjectSession.mockClear();
+  getServerApiContract.mockReset();
+  getServerApiContract.mockResolvedValue({
+    clientVersion: publicApiContractVersion,
+    serverVersion: publicApiContractVersion,
+    supportedOperationIds: new Set(
+      publicApiOperations.map((operation) => operation.id)
+    ),
+    missingServerOperationIds: [],
+    negotiated: true,
+  });
   vi.spyOn(console, "info").mockImplementation(() => undefined);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
@@ -238,6 +291,27 @@ test("requires json output flag", async () => {
   expect(console.error).toHaveBeenCalledWith(
     "whoami currently requires --json."
   );
+});
+
+test("explains mcp-only editing commands should use shortcut or single-op-call", async () => {
+  mockConfig();
+
+  await expect(
+    apiCommand(
+      {
+        command: "insert-fragment",
+        json: true,
+      },
+      dependencies
+    )
+  ).rejects.toThrow("Handled CLI error");
+
+  expectJsonErrorOutput({
+    command: "insert-fragment",
+    code: "API_COMMAND_FAILED",
+    message:
+      "insert-fragment is an MCP project-editing tool, not a high-level CLI API command. Use the MCP shortcut, for example: webstudio insert-fragment '{...}', or the explicit form: webstudio mcp single-op-call insert-fragment '{...}'.",
+  });
 });
 
 test("documents every executable api command", () => {
@@ -394,7 +468,6 @@ test("passes dry-run to local-capable mutations", async () => {
     "folders.create",
     {
       projectId: "project-1",
-      folderId: undefined,
       name: "Draft",
       slug: "draft",
       parentFolderId: undefined,
@@ -413,6 +486,102 @@ test("calls build snapshot for configured project", async () => {
     call: apiCalls.getBuildSnapshot,
     connection: { include: ["pages", "designTokens"], version: 3 },
   });
+});
+
+test("runs a focused project audit", async () => {
+  await expectCommandCall({
+    options: {
+      command: "audit",
+      scopes: ["accessibility", "seo"],
+      severities: ["error", "warning"],
+      pagePath: "/pricing",
+      limit: 25,
+      cursor: "cursor-1",
+      verbose: true,
+    },
+    call: apiCalls.audit,
+    connection: {
+      scopes: ["accessibility", "seo"],
+      severities: ["error", "warning"],
+      pageId: undefined,
+      pagePath: "/pricing",
+      limit: 25,
+      cursor: "cursor-1",
+      verbose: true,
+    },
+  });
+});
+
+test("parses the documented repeated audit scope options", async () => {
+  const parsed = await auditCommandOptions(
+    makeCLI([]).exitProcess(false) as unknown as CommonYargsArgv
+  ).parseAsync([
+    "--scopes",
+    "accessibility",
+    "--scopes",
+    "seo",
+    "--page-path",
+    "/pricing",
+  ]);
+
+  expect(parsed).toMatchObject({
+    scopes: ["accessibility", "seo"],
+    pagePath: "/pricing",
+  });
+});
+
+test("prints a compact project audit without --json", async () => {
+  mockConfig();
+  apiCalls.audit.mockResolvedValueOnce({
+    summary: {
+      total: 1,
+      selectedTotal: 1,
+      bySeverity: { error: 1, warning: 0, info: 0 },
+    },
+    findings: [
+      {
+        severity: "error",
+        scope: "accessibility",
+        ruleId: "missing-alt",
+        message: "Image has no alt prop.",
+        location: { instanceId: "image-1" },
+      },
+    ],
+    skippedCheckCount: 0,
+    manualCheckCount: 3,
+    nextCursor: null,
+  });
+
+  await apiCommand({ command: "audit" }, dependencies);
+
+  expect(console.info).toHaveBeenCalledWith(
+    "Audit: 1 findings (1 errors, 0 warnings, 0 info)"
+  );
+  expect(console.info).toHaveBeenCalledWith(
+    "[ERROR] accessibility/missing-alt: Image has no alt prop. (image-1)"
+  );
+  expect(console.info).toHaveBeenCalledWith("3 manual checks recommended.");
+});
+
+test("labels filtered audit totals without implying hidden findings are returned", async () => {
+  mockConfig();
+  apiCalls.audit.mockResolvedValueOnce({
+    summary: {
+      total: 5,
+      selectedTotal: 1,
+      bySeverity: { error: 1, warning: 3, info: 1 },
+    },
+    findings: [],
+    skippedCheckCount: 0,
+    manualCheckCount: 0,
+    nextCursor: "next",
+  });
+
+  await apiCommand({ command: "audit" }, dependencies);
+
+  expect(console.info).toHaveBeenCalledWith(
+    "Audit: 1 selected findings (5 across all severities) (1 errors, 3 warnings, 1 info)"
+  );
 });
 
 test("applies build patch transactions for configured project", async () => {
@@ -484,6 +653,80 @@ test("maps api not found errors to not found json", async () => {
   });
 });
 
+test("prints actionable validation issues in CLI JSON", async () => {
+  mockConfig();
+  const issue = {
+    code: "invalid_expression",
+    path: ["values", "title"],
+    message: "Invalid Webstudio expression",
+    constraint: "valid_webstudio_expression",
+    example: 'pageTitle ?? "Pricing"',
+    detail: "Unexpected token at 1:4",
+  };
+  apiCalls.getPage.mockRejectedValue(
+    Object.assign(new Error("Page input is invalid."), {
+      code: "INVALID_INPUT",
+      issues: [issue],
+    })
+  );
+
+  await expect(
+    apiCommand(
+      { command: "get-page", page: "page-1", json: true },
+      dependencies
+    )
+  ).rejects.toThrow("Handled CLI error");
+
+  expect(getLastJsonOutput()).toEqual({
+    ok: false,
+    error: {
+      code: "INVALID_INPUT",
+      message: "Page input is invalid.",
+      issues: [issue],
+    },
+    meta: {
+      command: "get-page",
+      projectId: "project-1",
+      durationMs: expect.any(Number),
+    },
+  });
+});
+
+test("explains missing Builder API access instead of leaking token ownership errors", async () => {
+  mockConfig();
+  createCliProjectSession.mockImplementationOnce(() => ({
+    initialize: vi.fn(async () => {
+      throw Object.assign(
+        new Error("Project owner can't be found for token token-1"),
+        { data: { code: "INTERNAL_SERVER_ERROR" } }
+      );
+    }),
+    refresh: vi.fn(),
+    executeServerOperation: vi.fn(),
+    read: vi.fn(),
+    mutate: vi.fn(),
+    snapshot: undefined,
+    markStale: vi.fn(),
+  }));
+
+  await expect(
+    apiCommand(
+      {
+        command: "list-pages",
+        json: true,
+      },
+      dependencies
+    )
+  ).rejects.toThrow("Handled CLI error");
+
+  expectJsonErrorOutput({
+    command: "list-pages",
+    code: "UNAUTHORIZED",
+    message:
+      "This project cannot be accessed through the Builder API with the current share link/token. Enable API access in the share-link settings, then relink the project with `webstudio init --link <share-link> --json`.",
+  });
+});
+
 test("splits comma-separated include values", async () => {
   mockConfig();
 
@@ -514,7 +757,6 @@ test("creates folder with settings", async () => {
     },
     call: apiCalls.createFolder,
     connection: {
-      folderId: undefined,
       name: "Blog",
       slug: "blog",
       parentFolderId: "root-folder",
@@ -555,7 +797,6 @@ test("creates page with settings", async () => {
     },
     call: apiCalls.createPage,
     connection: {
-      pageId: undefined,
       name: "Pricing",
       path: "/pricing",
       title: "Pricing",
@@ -628,6 +869,36 @@ test("updates project settings from input file", async () => {
   });
 });
 
+test("gets marketplace product", async () => {
+  await expectCommandCall({
+    options: { command: "get-marketplace-product" },
+    call: apiCalls.getMarketplaceProduct,
+    connection: {},
+  });
+});
+
+test("updates marketplace product from input file", async () => {
+  const input = {
+    category: "pageTemplates",
+    name: "Acme Template",
+    thumbnailAssetId: "asset-id",
+    author: "Acme Studio",
+    email: "hello@example.com",
+    website: "https://example.com",
+    issues: "",
+    description: "Reusable template project for Acme landing pages.",
+  };
+  await expectCommandCall({
+    options: {
+      command: "update-marketplace-product",
+      input: "marketplace-product.json",
+    },
+    inputJson: input,
+    call: apiCalls.updateMarketplaceProduct,
+    connection: input,
+  });
+});
+
 test("creates redirect", async () => {
   await expectCommandCall({
     options: {
@@ -689,17 +960,27 @@ test("deletes redirect", async () => {
   });
 });
 
+test("sets redirects from input file", async () => {
+  const input = {
+    redirects: [{ old: "/old", new: "/new", status: "301" }],
+  };
+  await expectCommandCall({
+    options: { command: "set-redirects", input: "redirects.json" },
+    inputJson: input,
+    call: apiCalls.setRedirects,
+    connection: input,
+  });
+});
+
 test("creates breakpoint", async () => {
   await expectCommandCall({
     options: {
       command: "create-breakpoint",
-      breakpoint: "tablet",
       label: "Tablet",
       maxWidth: 991,
     },
     call: apiCalls.createBreakpoint,
     connection: {
-      id: "tablet",
       label: "Tablet",
       minWidth: undefined,
       maxWidth: 991,
@@ -820,6 +1101,86 @@ test("lists page templates", async () => {
   });
 });
 
+test("creates page template", async () => {
+  await expectCommandCall({
+    options: {
+      command: "create-page-template",
+      name: "Landing Template",
+      title: '"Landing"',
+      description: '"Reusable landing layout"',
+    },
+    call: apiCalls.createPageTemplate,
+    connection: {
+      name: "Landing Template",
+      title: '"Landing"',
+      meta: { description: '"Reusable landing layout"' },
+    },
+  });
+});
+
+test("updates page template", async () => {
+  await expectCommandCall({
+    options: {
+      command: "update-page-template",
+      template: "template-1",
+      name: "Article Template",
+      description: '"Reusable article layout"',
+    },
+    call: apiCalls.updatePageTemplate,
+    connection: {
+      templateId: "template-1",
+      values: {
+        name: "Article Template",
+        title: undefined,
+        meta: { description: '"Reusable article layout"' },
+      },
+    },
+  });
+});
+
+test("deletes page template", async () => {
+  await expectCommandCall({
+    options: {
+      command: "delete-page-template",
+      template: "template-1",
+      confirm: true,
+    },
+    call: apiCalls.deletePageTemplate,
+    connection: { templateId: "template-1" },
+  });
+});
+
+test("duplicates page template", async () => {
+  await expectCommandCall({
+    options: {
+      command: "duplicate-page-template",
+      template: "template-1",
+    },
+    call: apiCalls.duplicatePageTemplate,
+    connection: {
+      projectId: "project-1",
+      templateId: "template-1",
+    },
+  });
+});
+
+test("reorders page template", async () => {
+  await expectCommandCall({
+    options: {
+      command: "reorder-page-template",
+      sourceTemplate: "template-1",
+      targetTemplate: "template-2",
+      position: "before",
+    },
+    call: apiCalls.reorderPageTemplate,
+    connection: {
+      sourceTemplateId: "template-1",
+      targetTemplateId: "template-2",
+      position: "before",
+    },
+  });
+});
+
 test("creates page from template", async () => {
   await expectCommandCall({
     options: {
@@ -831,6 +1192,7 @@ test("creates page from template", async () => {
     },
     call: apiCalls.createPageFromTemplate,
     connection: {
+      projectId: "project-1",
       templateId: "template-1",
       name: "Landing",
       path: "/landing",
@@ -901,21 +1263,21 @@ test("inspects instance details", async () => {
   });
 });
 
-test("appends instances from input file", async () => {
+test("inserts component with registered template", async () => {
   await expectCommandCall({
     options: {
-      command: "append-instance",
+      command: "insert-component",
       parent: "parent-id",
-      input: "children.json",
+      component: "@webstudio-is/sdk-components-react-radix:Switch",
       mode: "prepend",
+      insertIndex: 1,
     },
-    call: apiCalls.appendInstance,
-    inputJson: [{ tag: "div", label: "Hero", text: "Hello" }],
+    call: apiCalls.insertComponent,
     connection: {
       parentInstanceId: "parent-id",
+      component: "@webstudio-is/sdk-components-react-radix:Switch",
       mode: "prepend",
-      insertIndex: undefined,
-      children: [{ tag: "div", label: "Hero", text: "Hello" }],
+      insertIndex: 1,
     },
   });
 });
@@ -1095,7 +1457,6 @@ test("creates variable with parsed value", async () => {
     },
     call: apiCalls.createVariable,
     connection: {
-      dataSourceId: undefined,
       scopeInstanceId: "body-id",
       name: "items",
       value: { type: "string[]", value: ["a", "b"] },
@@ -1152,7 +1513,6 @@ test("creates resource from options and exposes data source", async () => {
     },
     call: apiCalls.createResource,
     connection: {
-      resourceId: undefined,
       resource: {
         name: "Posts",
         method: "get",
@@ -1160,7 +1520,6 @@ test("creates resource from options and exposes data source", async () => {
         body: undefined,
         headers: [],
       },
-      dataSourceId: undefined,
       scopeInstanceId: "body-id",
       dataSourceName: "posts",
     },
@@ -1331,6 +1690,14 @@ test("calls asset list with pagination", async () => {
   });
 });
 
+test("lists fonts with optional system stacks", async () => {
+  await expectCommandCall({
+    options: { command: "list-fonts", includeSystem: false },
+    call: apiCalls.listFonts,
+    connection: { includeSystem: false },
+  });
+});
+
 test("uploads asset descriptor with local file reader", async () => {
   mockConfig();
   readFile.mockResolvedValueOnce(
@@ -1461,6 +1828,9 @@ test("passes style token inclusion through to the api", async () => {
       property: undefined,
       propertyFilter: undefined,
       includeTokens: true,
+      cursor: undefined,
+      limit: undefined,
+      verbose: undefined,
     },
   });
 });
@@ -1470,11 +1840,19 @@ test("lists design tokens with filters", async () => {
     options: {
       command: "list-design-tokens",
       filter: "brand",
+      verbose: true,
       withUsage: true,
       sort: "usage",
     },
     call: apiCalls.listDesignTokens,
-    connection: { filter: "brand", withUsage: true, sort: "usage" },
+    connection: {
+      filter: "brand",
+      withUsage: true,
+      sort: "usage",
+      cursor: undefined,
+      limit: undefined,
+      verbose: true,
+    },
   });
 });
 
