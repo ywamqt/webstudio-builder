@@ -4,11 +4,128 @@ import {
   builderPatchSchema,
   builderPatchTransactionSchema,
   compactBuilderPatchPayload,
+  appendOptionalPropertyPatch,
+  type BuilderPatch,
+  createOptionalPropertyPatch,
   hasGeneratedRecordWritePatch,
+  restorePointPatchTransactionSchema,
 } from "./patch";
 import { builderNamespaces } from "./namespaces";
 
 describe("builder patch contracts", () => {
+  test("restore point transactions only replace namespace roots", () => {
+    const transaction = {
+      id: "restore",
+      payload: [
+        {
+          namespace: "pages",
+          patches: [{ op: "replace", path: [], value: {} }],
+        },
+      ],
+    };
+
+    expect(
+      restorePointPatchTransactionSchema.safeParse(transaction).success
+    ).toBe(true);
+    expect(
+      restorePointPatchTransactionSchema.safeParse({
+        ...transaction,
+        payload: [
+          {
+            namespace: "pages",
+            patches: [{ op: "replace", path: ["pages"], value: new Map() }],
+          },
+        ],
+      }).success
+    ).toBe(false);
+    expect(
+      restorePointPatchTransactionSchema.safeParse({
+        ...transaction,
+        payload: [
+          {
+            namespace: "pages",
+            patches: [{ op: "add", path: [], value: {} }],
+          },
+        ],
+      }).success
+    ).toBe(false);
+    expect(
+      restorePointPatchTransactionSchema.safeParse({
+        ...transaction,
+        payload: [
+          {
+            namespace: "assets",
+            patches: [{ op: "replace", path: [], value: new Map() }],
+          },
+        ],
+      }).success
+    ).toBe(false);
+    expect(
+      restorePointPatchTransactionSchema.safeParse({
+        ...transaction,
+        payload: [],
+      }).success
+    ).toBe(false);
+    expect(
+      restorePointPatchTransactionSchema.safeParse({
+        ...transaction,
+        payload: [transaction.payload[0], transaction.payload[0]],
+      }).success
+    ).toBe(false);
+  });
+
+  test("creates patches for optional properties", () => {
+    expect(
+      createOptionalPropertyPatch({
+        path: ["record", "field"],
+        previous: undefined,
+        next: "value",
+      })
+    ).toEqual({
+      op: "add",
+      path: ["record", "field"],
+      value: "value",
+    });
+    expect(
+      createOptionalPropertyPatch({
+        path: ["record", "field"],
+        previous: "value",
+        next: "next",
+      })
+    ).toEqual({
+      op: "replace",
+      path: ["record", "field"],
+      value: "next",
+    });
+    expect(
+      createOptionalPropertyPatch({
+        path: ["record", "field"],
+        previous: "value",
+        next: undefined,
+      })
+    ).toEqual({ op: "remove", path: ["record", "field"] });
+    expect(
+      createOptionalPropertyPatch({
+        path: ["record", "field"],
+        previous: "value",
+        next: "value",
+      })
+    ).toBeUndefined();
+
+    const patches: BuilderPatch[] = [];
+    appendOptionalPropertyPatch(patches, {
+      path: ["record", "field"],
+      previous: undefined,
+      next: "value",
+    });
+    appendOptionalPropertyPatch(patches, {
+      path: ["record", "field"],
+      previous: "value",
+      next: "value",
+    });
+    expect(patches).toHaveLength(1);
+  });
+
   test("requires values for add and replace patches", () => {
     expect(
       builderPatchSchema.safeParse({ op: "add", path: ["prop-subtitle"] })

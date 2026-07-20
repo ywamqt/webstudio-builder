@@ -11,6 +11,31 @@ resolve an older binary.
 
 For delegated design-system or “use every component” tasks, skip the generic warm-up sequence and start with exactly one MCP command: `webstudio workflow.next '{"goal":"design-system-page"}'`. Report that returned checkpoint to the parent/user and stop until continued.
 
+## Connect an MCP client
+
+When the user asks to connect the current folder to Webstudio, run the command
+for the agent client you are currently using:
+
+- Claude Code: `webstudio connect claude`
+- Codex: `webstudio connect codex`
+- Cursor: `webstudio connect cursor`
+- VS Code or GitHub Copilot: `webstudio connect vscode`
+
+Run the command from the linked project root. If the folder is not linked, ask
+for an editable Builder share link and run
+`webstudio init --link <share-link> --json`, followed by `webstudio sync`, then
+retry `webstudio connect <client>`. Treat the share link as a credential and do
+not include it in committed files, logs, screenshots, or issue reports.
+
+`connect` verifies project access before changing client configuration. For
+Claude Code, Cursor, and VS Code it safely merges the `webstudio` server into
+the client's project configuration. For Codex it runs both `codex mcp add` and
+`codex mcp get webstudio`; do not repeat those commands separately. Follow the
+reload, restart, or approval instruction printed by `connect`, then verify the
+loaded MCP connection by asking the client to use Webstudio MCP and list the
+project pages. Use `--print` only to inspect the generated setup without
+changing configuration or requiring project access.
+
 ## Always
 
 1. webstudio permissions --json
@@ -418,7 +443,8 @@ Before authoring unfamiliar expressions, read `webstudio://project/expressions` 
 - Use `bind-props` only when the prop must stay dynamic: an expression, resource result, action, or existing scoped runtime context such as `system`. Do not use `bind-props` just to set a fixed string.
 - Direct prop string example: `{"updates":[{"instanceId":"button-id","name":"aria-label","type":"string","value":"Open menu"}]}`.
 - Expression binding example: `{"bindings":[{"instanceId":"link-id","name":"href","binding":{"type":"expression","value":"currentPost.url"}}]}`.
-- Page metadata fields such as `title`, `description`, `language`, `redirect`, `status`, and custom meta content accept plain fixed text. For computed values, pass JavaScript expression code such as `pageTitle ?? "Pricing | Acme"`.
+- Page metadata fields such as `title`, `description`, `language`, `redirect`, and custom meta content accept plain fixed text. For computed values, pass JavaScript expression code such as `pageTitle ?? "Pricing | Acme"`.
+- Page `status` accepts a fixed HTTP status code as a number from 200 through 599, for example `302`. For a dynamic status, pass JavaScript expression code such as `system.status`.
 - Page metadata update example: use `update-page` with `{"pageId":"page-id","values":{"title":"Pricing | Acme","meta":{"description":"Plans for teams"}}}`.
 - Draft a page with `update-page` and `{"pageId":"page-id","values":{"isDraft":true}}`. It remains editable and previewable but is omitted from every publish target, including staging, and from sitemap output.
 - Stage a draft page for a future publish with `{"pageId":"page-id","values":{"isDraft":false}}`. This clears draft state but does not deploy the site. The home page and `/*` catch-all page cannot be drafts.

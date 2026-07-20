@@ -4,18 +4,24 @@ import {
   useState,
   type ComponentProps,
   type JSX,
+  type PointerEvent,
 } from "react";
 import type { AssetType } from "@webstudio-is/asset-uploader";
 import {
+  ContextMenu,
+  ContextMenuTrigger,
   Flex,
-  ScrollArea,
+  ScrollAreaNative,
   SearchField,
-  Text,
   theme,
 } from "@webstudio-is/design-system";
-import { acceptUploadType, validateFiles } from "./asset-upload";
-import { detectAssetType } from "@webstudio-is/sdk";
-import { NotFound } from "./not-found";
+import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
+import {
+  acceptUploadType,
+  groupFilesByAssetType,
+  validateFiles,
+} from "./asset-upload";
+import { AssetPanelState } from "./asset-panel-state";
 import { Separator } from "./separator";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
 import {
@@ -26,7 +32,6 @@ import { dropTargetForExternal } from "@atlaskit/pragmatic-drag-and-drop/externa
 import invariant from "tiny-invariant";
 import type { ContainsSource } from "@atlaskit/pragmatic-drag-and-drop/dist/types/public-utils/external/native-types";
 import { uploadAssets } from "./upload-assets";
-import { UploadIcon } from "@webstudio-is/icons";
 import {
   IDLE,
   isBlockedByBackdrop,
@@ -39,9 +44,23 @@ type AssetsShellProps = {
   filters?: JSX.Element;
   searchProps: ComponentProps<typeof SearchField>;
   children: JSX.Element;
+  interactionOverlay?: JSX.Element;
+  footer?: JSX.Element;
   type: AssetType;
   accept?: string;
   isEmpty: boolean;
+  emptyMessage?: string;
+  emptyContent?: JSX.Element;
+  folderId?: string;
+  contextMenu?: JSX.Element;
+  onContextMenu?: ComponentProps<typeof Flex>["onContextMenu"];
+  onPointerDown?: (
+    event: PointerEvent<HTMLElement>,
+    listViewport: HTMLElement | null
+  ) => void;
+  onKeyDown?: ComponentProps<typeof Flex>["onKeyDown"];
+  onElementChange?: (element: HTMLDivElement | null) => void;
+  autoScrollOnElementDrag?: boolean;
 };
 
 const containsFilesOrUri = (parameter: ContainsSource) => {
@@ -57,15 +76,38 @@ export const AssetsShell = ({
   filters,
   searchProps,
   isEmpty,
+  emptyMessage = "Drop files here",
+  emptyContent,
   children,
+  interactionOverlay,
+  footer,
+  folderId,
+  contextMenu,
+  onContextMenu,
+  onPointerDown,
+  onKeyDown,
+  onElementChange,
+  autoScrollOnElementDrag = false,
   type,
   accept,
 }: AssetsShellProps) => {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const listViewportRef = useRef<HTMLDivElement | null>(null);
   const [monitorState, setMonitorState] =
     useState<ExternalMonitorDragState>(IDLE);
 
   const [dropTargetState, setDropTargetState] = useState<DropTargetState>(IDLE);
+
+  useEffect(() => {
+    const element = listViewportRef.current;
+    if (element === null || autoScrollOnElementDrag === false) {
+      return;
+    }
+    return autoScrollForElements({
+      element,
+      getAllowedAxis: () => "vertical",
+    });
+  }, [autoScrollOnElementDrag, isEmpty]);
 
   useExternalDragStateEffect((state) => {
     const element = ref.current;
@@ -147,37 +189,35 @@ export const AssetsShell = ({
               return false;
             });
 
-          // Group files by their detected type
-          const filesByType = new Map<string, File[]>();
-          for (const file of files) {
-            const detectedType = detectAssetType(file.name);
-            if (!filesByType.has(detectedType)) {
-              filesByType.set(detectedType, []);
-            }
-            filesByType.get(detectedType)!.push(file);
+          for (const [detectedType, filesOfType] of groupFilesByAssetType(
+            files
+          )) {
+            uploadAssets(detectedType, filesOfType, { folderId });
           }
 
-          // Upload each group with the correct type
-          for (const [detectedType, filesOfType] of filesByType) {
-            uploadAssets(detectedType as AssetType, filesOfType);
-          }
-
-          uploadAssets(type, droppedUrls);
+          uploadAssets(type, droppedUrls, { folderId });
         },
       })
     );
-  }, [accept, containsByType, type]);
+  }, [accept, containsByType, folderId, type]);
 
   const dragState = Math.max(monitorState, dropTargetState);
 
-  return (
+  const shell = (
     <Flex
-      ref={ref}
+      ref={(element) => {
+        ref.current = element;
+        onElementChange?.(element);
+      }}
+      onPointerDown={(event) => onPointerDown?.(event, listViewportRef.current)}
+      onContextMenu={onContextMenu}
+      onKeyDown={onKeyDown}
       direction="column"
       css={{
         overflow: "hidden",
         paddingBlock: theme.panel.paddingBlock,
         flex: 1,
+        minHeight: 0,
         position: "relative",
       }}
     >
@@ -196,39 +236,69 @@ export const AssetsShell = ({
         {filters}
       </Flex>
       <Separator />
-      {isEmpty && <NotFound />}
-      <ScrollArea css={{ display: "flex", flexDirection: "column" }}>
-        {children}
-      </ScrollArea>
+      {isEmpty ? (
+        <Flex
+          direction="column"
+          css={{ flex: 1, minHeight: 0, position: "relative" }}
+        >
+          {emptyContent}
+          <AssetPanelState
+            overlay={emptyContent !== undefined}
+            message={emptyMessage}
+            active={dragState === OVER}
+            description={
+              emptyMessage === "Drop files here"
+                ? "Drop files from anywhere into this panel."
+                : undefined
+            }
+          />
+        </Flex>
+      ) : (
+        <ScrollAreaNative
+          data-asset-manager-scroll-area=""
+          ref={listViewportRef}
+          style={{ overflowY: "auto" }}
+          css={{
+            display: "flex",
+            flexDirection: "column",
+            flex: 1,
+            minHeight: 0,
+          }}
+        >
+          {children}
+        </ScrollAreaNative>
+      )}
+      {interactionOverlay}
+      {footer}
       <Flex
         css={{
           position: "absolute",
           inset: 0,
-          display: dragState !== IDLE ? "flex" : "none",
+          display: dragState !== IDLE && isEmpty === false ? "flex" : "none",
           backgroundColor: theme.colors.backgroundPanel,
-          opacity: 0.85,
           color:
             dragState === OVER
               ? theme.colors.foregroundMain
               : theme.colors.foregroundSubtle,
         }}
       >
-        <Flex
-          align="center"
-          justify="center"
-          css={{
-            position: "absolute",
-            inset: theme.spacing[4],
-            border: `2px dashed ${dragState === OVER ? theme.colors.foregroundMain : theme.colors.foregroundMoreSubtle}`,
-          }}
-        >
-          <Flex align={"center"} gap={1}>
-            <UploadIcon />
-
-            <Text variant={"regularBold"}>Drop files here</Text>
-          </Flex>
-        </Flex>
+        <AssetPanelState
+          message="Drop files here"
+          description="Drop files from anywhere into this panel."
+          active={dragState === OVER}
+        />
       </Flex>
     </Flex>
+  );
+
+  if (contextMenu === undefined) {
+    return shell;
+  }
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{shell}</ContextMenuTrigger>
+      {contextMenu}
+    </ContextMenu>
   );
 };

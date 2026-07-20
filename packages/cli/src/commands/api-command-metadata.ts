@@ -183,6 +183,7 @@ const apiCommandOptionsByCommand: Partial<
   "replace-styles": apiCommand.replaceStylesCommandOptions,
   "list-design-tokens": apiCommand.designTokensCommandOptions,
   "create-design-token": apiCommand.createDesignTokenCommandOptions,
+  "import-design-tokens": apiCommand.importDesignTokensCommandOptions,
   "update-design-token-styles":
     apiCommand.updateDesignTokenStylesCommandOptions,
   "delete-design-token-styles":
@@ -212,6 +213,7 @@ const apiCommandOptionsByCommand: Partial<
   "delete-domain": apiCommand.deleteDomainCommandOptions,
   "verify-domain": apiCommand.verifyDomainCommandOptions,
   "list-assets": apiCommand.assetsCommandOptions,
+  "get-asset": apiCommand.assetCommandOptions,
   "list-fonts": apiCommand.fontsCommandOptions,
   "upload-asset": apiCommand.uploadAssetCommandOptions,
   "upload-assets": apiCommand.uploadAssetsCommandOptions,

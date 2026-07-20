@@ -7,6 +7,7 @@ import {
 } from "@webstudio-is/trpc-interface/api-compatibility";
 import {
   buildPatchTransaction,
+  restorePointPatchTransaction,
   buildPatchNamespaces,
   bundleVersion as currentBundleVersion,
   importProjectBundleResult,
@@ -16,6 +17,7 @@ import {
   stagedUploadPath,
   stagedUploadProjectIdHeader,
   parseBuilderUrl,
+  projectSessionRestorePointPath,
   type BuildPatchTransaction,
   getPublicApiOperation,
   getPublicApiOperationPath,
@@ -332,6 +334,7 @@ type AssetUploadDescriptor = {
   format?: string;
   meta?: Record<string, unknown>;
   description?: string | null;
+  folderId?: string;
 };
 
 type AssetUploadResult = { uploadedAssets?: Asset[] };
@@ -366,6 +369,9 @@ const getAssetUploadUrl = ({
   );
   url.searchParams.set("projectId", projectId);
   url.searchParams.set("type", asset.type);
+  if (asset.folderId !== undefined) {
+    url.searchParams.set("folderId", asset.folderId);
+  }
   if (asset.type === "image") {
     url.searchParams.set("width", String(asset.meta.width));
     url.searchParams.set("height", String(asset.meta.height));
@@ -473,6 +479,7 @@ const toUploadAsset = ({
     name: descriptor.name,
     filename: descriptor.name,
     description: descriptor.description ?? null,
+    folderId: descriptor.folderId,
     size: 0,
     createdAt: new Date().toISOString(),
   };
@@ -607,6 +614,7 @@ export const toLocalProjectBundle = (project: PublishedProjectBundle) => {
   const normalizedProject = publishedProjectBundle.parse(project);
   const {
     assets,
+    assetFolders,
     build,
     origin,
     page,
@@ -621,6 +629,7 @@ export const toLocalProjectBundle = (project: PublishedProjectBundle) => {
     page,
     pages,
     assets,
+    assetFolders,
     user,
     projectDomain,
     projectTitle,
@@ -661,6 +670,16 @@ export const parseBuildPatchTransactions = (transactions: unknown) => {
   if (result.success === false) {
     throw new Error(
       `Invalid patch JSON: ${formatSchemaIssues(result.error.issues)}`
+    );
+  }
+  return result.data;
+};
+
+const parseRestorePointPatchTransactions = (transactions: unknown) => {
+  const result = restorePointPatchTransaction.array().safeParse(transactions);
+  if (result.success === false) {
+    throw new Error(
+      `Invalid restore point transaction: ${formatSchemaIssues(result.error.issues)}`
     );
   }
   return result.data;
@@ -721,6 +740,17 @@ export const applyBuildPatch = async (
     }
   );
 };
+
+export const applyRestorePointPatch = async (
+  params: AuthProjectParams & {
+    baseVersion: number;
+    transactions: unknown;
+  }
+) =>
+  await mutateProjectApi(params, projectSessionRestorePointPath, {
+    baseVersion: params.baseVersion,
+    transactions: parseRestorePointPatchTransactions(params.transactions),
+  });
 
 type PageMetaInput = {
   description?: string;
@@ -1123,6 +1153,10 @@ export const insertComponent = projectMutationInput<
 
 export const insertCollection = runtimeProjectMutation("insert-collection");
 
+export const attachSharedSlot = runtimeProjectMutation("attach-slot");
+
+export const extractSharedSlot = runtimeProjectMutation("extract-slot");
+
 export const insertFragment = projectMutationInput<
   AuthProjectParams & {
     parentInstanceId: string;
@@ -1302,6 +1336,10 @@ export const createDesignTokens = projectMutationInput<
     }>;
   }
 >("create-design-token");
+
+export const importDesignTokens = runtimeProjectMutation(
+  "import-design-tokens"
+);
 
 export const updateDesignTokenStyles = projectMutationInput<
   AuthProjectParams & {
@@ -1498,6 +1536,37 @@ export const verifyDomain = projectMutationInput<
   AuthProjectParams & { domainId: string }
 >("verify-domain");
 
+export const listAssetFolders =
+  projectQueryInput<AuthProjectParams>("list-asset-folders");
+
+export const createAssetFolder = projectMutationInput<
+  AuthProjectParams & {
+    name: string;
+    parentId?: string;
+  }
+>("create-asset-folder");
+
+export const updateAssetFolder = projectMutationInput<
+  AuthProjectParams & {
+    folderId: string;
+    values: {
+      name?: string;
+      parentId?: string | null;
+    };
+  }
+>("update-asset-folder");
+
+export const deleteAssetFolder = projectMutationInput<
+  AuthProjectParams & { folderId: string }
+>("delete-asset-folder");
+
+export const duplicateAssetFolder = projectMutationInput<
+  AuthProjectParams & {
+    folderId: string;
+    parentId?: string | null;
+  }
+>("duplicate-asset-folder");
+
 export const listAssets = projectQueryInput<
   AuthProjectParams &
     PaginatedQueryInput & {
@@ -1506,6 +1575,10 @@ export const listAssets = projectQueryInput<
       withUsage?: boolean;
     }
 >("list-assets");
+
+export const getAsset = projectQueryInput<
+  AuthProjectParams & { assetId: string }
+>("get-asset");
 
 export const findAssetUsage = projectQueryInput<
   AuthProjectParams &
@@ -1527,6 +1600,13 @@ export const deleteAssets = projectConfirmedMutationInput<
     force?: boolean;
   }
 >("delete-asset");
+
+export const duplicateAsset = projectMutationInput<
+  AuthProjectParams & {
+    assetId: string;
+    folderId?: string | null;
+  }
+>("duplicate-asset");
 
 const getUploadIdFromUrl = (uploadUrl: string | null) => {
   if (uploadUrl === null) {

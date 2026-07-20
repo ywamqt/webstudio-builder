@@ -23,6 +23,7 @@ import {
   fragmentInsertResult,
 } from "./component-insert-contract";
 import { expressionWarningSchema } from "./expression-validation";
+import { designTokenImportPlanEntrySchema } from "./design-token-import";
 
 const looseObject = <Shape extends z.ZodRawShape>(shape: Shape) =>
   z.looseObject(shape);
@@ -191,6 +192,7 @@ const asset = looseObject({
   id,
   name: z.string(),
   filename: z.string().optional(),
+  folderId: id.optional(),
   type: assetType,
   size: z.number(),
   contentType: z.string(),
@@ -202,6 +204,7 @@ const assetRecord = looseObject({
   name: z.string(),
   filename: z.string().optional(),
   description: z.string().nullable().optional(),
+  folderId: id.optional(),
   type: assetType,
   size: z.number(),
   format: z.string(),
@@ -209,6 +212,13 @@ const assetRecord = looseObject({
   meta: looseObject({}),
 });
 const assetListItem = asset.extend({ record: assetRecord.optional() });
+const assetFolder = looseObject({
+  id,
+  projectId: id,
+  name: z.string(),
+  parentId: id.optional(),
+  createdAt: z.string(),
+});
 const assetUsage = looseObject({
   namespace: z.enum([
     "props",
@@ -285,6 +295,12 @@ const unsupportedRuntimeConversion = looseObject({
 });
 
 export const runtimeOutputSchemas = {
+  "assetFolders.list": looseObject({ folders: z.array(assetFolder) }),
+  "assetFolders.create": folderIdResult,
+  "assetFolders.update": folderIdResult,
+  "assetFolders.delete": folderIdResult,
+  "assetFolders.duplicate": folderIdResult,
+  "assets.get": looseObject({ asset: assetRecord }),
   "pages.list": looseObject({
     pages: z.array(pageSummary),
     ...outputPage,
@@ -410,6 +426,8 @@ export const runtimeOutputSchemas = {
     warnings: expressionWarnings.optional(),
   }),
   "instances.insertFragment": fragmentInsertResult,
+  "slots.attach": looseObject({ slotId: id, fragmentId: id }),
+  "slots.extract": looseObject({ slotId: id, fragmentId: id, instanceId: id }),
   "instances.move": instanceIdsResult,
   "instances.reparent": looseObject({
     instanceSelector: stringArray.optional(),
@@ -489,6 +507,14 @@ export const runtimeOutputSchemas = {
   "styles.replaceValues": styleKeysResult,
   "designTokens.list": looseObject({ tokens: z.array(token), ...outputPage }),
   "designTokens.create": looseObject({ tokenIds: stringArray }),
+  "designTokens.import": looseObject({
+    plan: z.array(designTokenImportPlanEntrySchema),
+    counts: looseObject({
+      create: z.number().int(),
+      overwrite: z.number().int(),
+      skip: z.number().int(),
+    }),
+  }),
   "designTokens.createAttached": looseObject({ tokenIds: stringArray }),
   "designTokens.updateStyles": looseObject({
     designTokenId: id,
@@ -591,6 +617,7 @@ export const runtimeOutputSchemas = {
     updated: z.array(looseObject({ assetId: id, decorative: z.boolean() })),
   }),
   "assets.add": assetIdResult,
+  "assets.duplicate": assetIdResult,
   "assets.replace": looseObject({ fromAssetId: id, toAssetId: id }),
   "assets.delete": looseObject({ assetIds: stringArray }),
   "system.migrateLoadedData": looseObject({ didBreakCycles: z.boolean() }),

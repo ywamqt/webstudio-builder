@@ -387,6 +387,12 @@ const simpleCommandCases = [
     "getPageByPath",
     { path: "/pricing" },
   ],
+  [
+    "asset details",
+    { command: "get-asset", asset: "asset-1" },
+    "getAsset",
+    { assetId: "asset-1" },
+  ],
 ] satisfies Array<
   readonly [
     string,
@@ -2002,6 +2008,28 @@ test("creates design tokens from input file", async () => {
     call: apiCalls.createDesignTokens,
     inputJson: tokens,
     connection: { tokens },
+  });
+});
+
+test("imports design tokens from input file", async () => {
+  const inputJson = {
+    source: {
+      format: "dtcg",
+      document: {
+        color: {
+          brand: { $type: "color", $value: "#0066ff" },
+        },
+      },
+    },
+    mapping: {
+      color: { target: "design-token", property: "color" },
+    },
+  };
+  await expectCommandCall({
+    options: { command: "import-design-tokens", input: "tokens.json" },
+    call: apiCalls.importDesignTokens,
+    inputJson,
+    connection: inputJson,
   });
 });
 

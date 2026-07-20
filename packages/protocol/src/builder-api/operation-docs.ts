@@ -333,6 +333,23 @@ const curatedPublicApiOperationDocumentation = [
     ],
   },
   {
+    command: "attach-slot",
+    description:
+      "Attach another Slot occurrence that references the same shared content; use this for headers, footers, and other content edited once across pages",
+    examples: [
+      'MCP tool: attach-slot {"sourceSlotId":"slot-id","parentInstanceId":"parent-id"}',
+    ],
+  },
+  {
+    command: "extract-slot",
+    description:
+      "Convert an existing instance subtree into shared Slot content without cloning it. instanceSelector is a leaf-to-root occurrence path: start with the instance to extract, then its direct parent, then each successive ancestor toward the page root. Use the id and parentId relationships returned by list-instances. The first example extracts a section directly under Body; the second extracts a section nested in a page wrapper.",
+    examples: [
+      'MCP tool: extract-slot {"instanceSelector":["header-section-id","body-id"],"label":"Site header"}',
+      'MCP tool: extract-slot {"instanceSelector":["header-section-id","page-wrapper-id","body-id"],"label":"Site header"}',
+    ],
+  },
+  {
     command: "move-instance",
     description: "Move element instances to another parent or position",
     examples: [
@@ -450,6 +467,15 @@ const curatedPublicApiOperationDocumentation = [
     description: "Create reusable style tokens",
     requiredOptions: ["input", "json"],
     examples: ["webstudio create-design-token --input tokens.json --json"],
+  },
+  {
+    command: "import-design-tokens",
+    description:
+      "Import DTCG and Figma Variables as design tokens or CSS variables; mapping keys are token types such as color or dimension, not token paths",
+    requiredOptions: ["input", "json"],
+    examples: [
+      "webstudio import-design-tokens --input brand-tokens.json --json",
+    ],
   },
   {
     command: "update-design-token-styles",
@@ -653,9 +679,51 @@ const curatedPublicApiOperationDocumentation = [
     examples: ["webstudio verify-domain --domain-id domain-id --json"],
   },
   {
+    command: "list-asset-folders",
+    description: "List the complete Asset Manager folder hierarchy",
+    examples: ["MCP/API: list-asset-folders {}"],
+  },
+  {
+    command: "create-asset-folder",
+    description: "Create a root or nested Asset Manager folder",
+    examples: [
+      'MCP/API: create-asset-folder {"name":"Marketing","parentId":"parent-folder-id"}',
+    ],
+  },
+  {
+    command: "update-asset-folder",
+    description:
+      "Rename an Asset Manager folder or move it under another folder; use parentId:null for Root",
+    examples: [
+      'MCP/API: update-asset-folder {"folderId":"folder-id","values":{"name":"Brand","parentId":null}}',
+    ],
+  },
+  {
+    command: "duplicate-asset-folder",
+    description:
+      "Recursively duplicate a folder, nested folders, and contained assets; optionally choose a target parent",
+    examples: [
+      'MCP/API: duplicate-asset-folder {"folderId":"folder-id","parentId":"target-folder-id"}',
+    ],
+  },
+  {
+    command: "delete-asset-folder",
+    description:
+      "Delete a folder recursively, including nested folders and contained assets",
+    examples: ['MCP/API: delete-asset-folder {"folderId":"folder-id"}'],
+  },
+  {
     command: "list-assets",
-    description: "List project assets",
+    description:
+      "List project assets with folder ids; use verbose output for complete records",
     examples: ["webstudio list-assets --type image --with-usage --json"],
+  },
+  {
+    command: "get-asset",
+    description:
+      "Get one complete asset record, including description, folder, creation time, and type-specific metadata",
+    requiredOptions: ["asset", "json"],
+    examples: ["webstudio get-asset --asset asset-id --json"],
   },
   {
     command: "list-fonts",
@@ -665,7 +733,8 @@ const curatedPublicApiOperationDocumentation = [
   },
   {
     command: "upload-asset",
-    description: "Upload one local asset file from an asset descriptor",
+    description:
+      "Upload one local asset file from a descriptor, optionally into an Asset Manager folder",
     requiredOptions: ["input", "json"],
     examples: [
       "webstudio upload-asset --input asset.json --assets-dir .webstudio/assets --json",
@@ -673,7 +742,8 @@ const curatedPublicApiOperationDocumentation = [
   },
   {
     command: "upload-assets",
-    description: "Upload local asset files from asset descriptors",
+    description:
+      "Upload local asset files from descriptors, optionally into Asset Manager folders",
     requiredOptions: ["input", "json"],
     examples: [
       "webstudio upload-assets --input assets.json --assets-dir .webstudio/assets --json",
@@ -691,6 +761,30 @@ const curatedPublicApiOperationDocumentation = [
       "Save agent-generated image descriptions or mark images as decorative",
     examples: [
       'MCP/API: set-image-descriptions {"updates":[{"assetId":"hero-id","description":"Team collaborating around a whiteboard"},{"assetId":"texture-id","decorative":true}]}',
+    ],
+  },
+  {
+    command: "update-asset",
+    description:
+      "Rename an asset, update its description, or move it to another folder; use folderId:null for Root",
+    examples: [
+      'MCP/API: update-asset {"assetId":"asset-id","values":{"filename":"hero","folderId":"folder-id"}}',
+    ],
+  },
+  {
+    command: "add-asset",
+    description:
+      "Add an already-uploaded asset record, optionally inside an Asset Manager folder",
+    examples: [
+      'MCP/API: add-asset {"asset":{"id":"asset-id","name":"hero_hash.png","type":"image","size":1200,"format":"png","createdAt":"2026-01-01T00:00:00.000Z","meta":{"width":1200,"height":800},"folderId":"folder-id"}}',
+    ],
+  },
+  {
+    command: "duplicate-asset",
+    description:
+      "Duplicate an asset record while reusing its uploaded file; optionally choose a target folder",
+    examples: [
+      'MCP/API: duplicate-asset {"assetId":"asset-id","folderId":"target-folder-id"}',
     ],
   },
   {

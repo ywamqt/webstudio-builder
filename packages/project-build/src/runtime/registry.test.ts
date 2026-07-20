@@ -1941,7 +1941,9 @@ describe("builder runtime registry", () => {
     for (const operation of builderRuntimeOperations) {
       expect(operation.requiresAssets).toBe(
         operation.readNamespaces.includes("assets") ||
-          operation.writeNamespaces.includes("assets")
+          operation.writeNamespaces.includes("assets") ||
+          operation.readNamespaces.includes("assetFolders") ||
+          operation.writeNamespaces.includes("assetFolders")
       );
     }
     for (const operation of builderRuntimeOperations.filter((operation) =>
@@ -2097,6 +2099,8 @@ describe("builder runtime registry", () => {
       ["instances.insertComponent", { parentInstanceId: "body" }],
       ["instances.insertCollection", { parentInstanceId: "body" }],
       ["instances.insertFragment", { parentInstanceId: "body" }],
+      ["slots.attach", {}],
+      ["slots.extract", {}],
       ["instances.move", { moves: {} }],
       ["instances.reparent", {}],
       ["instances.fillGrid", {}],
@@ -2123,6 +2127,7 @@ describe("builder runtime registry", () => {
       ["styles.deleteSelectedDeclarations", { deletions: {} }],
       ["styles.replaceValues", {}],
       ["designTokens.create", { tokens: {} }],
+      ["designTokens.import", {}],
       ["designTokens.createAttached", { tokens: {}, instanceIds: [] }],
       ["designTokens.updateStyles", { designTokenId: "token", updates: {} }],
       ["designTokens.deleteStyles", { designTokenId: "token", deletions: {} }],
@@ -2150,9 +2155,14 @@ describe("builder runtime registry", () => {
       ["resources.upsert", {}],
       ["resources.upsertProp", {}],
       ["resources.delete", {}],
+      ["assetFolders.create", {}],
+      ["assetFolders.update", {}],
+      ["assetFolders.delete", {}],
+      ["assetFolders.duplicate", {}],
       ["assets.update", {}],
       ["assets.setImageDescriptions", {}],
       ["assets.add", {}],
+      ["assets.duplicate", {}],
       ["assets.replace", {}],
       ["assets.delete", { assetIdsOrPrefixes: "asset" }],
     ]);
@@ -2422,6 +2432,10 @@ describe("builder runtime registry", () => {
         },
       ],
       ["resources.delete", { resourceId: "resource", force: true }],
+      [
+        "assetFolders.update",
+        { folderId: "asset-folder", values: { name: "Updated Media" } },
+      ],
       [
         "assets.update",
         {

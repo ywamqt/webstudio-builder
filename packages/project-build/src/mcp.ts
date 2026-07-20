@@ -1,5 +1,6 @@
 import {
   builderNamespaces,
+  restorePointNamespaces,
   type BuilderNamespace,
 } from "./contracts/namespaces";
 import {
@@ -16,9 +17,11 @@ import {
 import type { BuilderApiCapability } from "./contracts/permissions";
 import path from "node:path";
 import {
+  projectSessionRestorePointSummarySchema,
   projectSessionBusyMessage,
   serializeProjectSessionMeta,
   type ProjectSessionEnvelope,
+  type ProjectSessionRestorePointSummary,
 } from "./project-session";
 import type { ScreenshotVisualExpectation } from "./visual/screenshot-diff";
 import { isPlainRecord, isRecord } from "./shared/type-utils";
@@ -311,6 +314,20 @@ export type ProjectSessionImportResult = {
 type ImportProject = (
   input: ProjectSessionImportInput
 ) => Promise<ProjectSessionImportResult>;
+
+export type ProjectSessionDownloadAssetInput = {
+  assetId: string;
+  assetsDir?: string;
+};
+
+export type ProjectSessionDownloadAssetResult = {
+  assetId: string;
+  path: string;
+};
+
+type DownloadAsset = (
+  input: ProjectSessionDownloadAssetInput
+) => Promise<ProjectSessionDownloadAssetResult>;
 
 export type ProjectSessionMcpGuidance = {
   visualVerificationRule: string;
@@ -738,6 +755,23 @@ const getHandshakeInputSchema = (
     detailedInputSchema: schema,
   };
 };
+
+const getZodObjectSchema = (schema: z.ZodTypeAny) => {
+  const inputSchema = toInputJsonSchemaObject(
+    getInputSchemaMetadata(schema).inputJsonSchema
+  );
+  if (inputSchema?.type !== "object") {
+    throw new Error("MCP schema must be an object");
+  }
+  return {
+    ...inputSchema,
+    type: "object",
+    additionalProperties: inputSchema.additionalProperties ?? false,
+  } as const;
+};
+
+const getZodMcpInputSchema = (schema: z.ZodTypeAny) =>
+  getHandshakeInputSchema(getZodObjectSchema(schema)).inputSchema;
 
 const insertCollectionMcpInputSchema = getOperationInputSchema({
   inputSchema: getInputSchemaMetadata(insertCollectionMcpInput).inputJsonSchema,
@@ -1417,6 +1451,24 @@ const importInputSchema = {
   required: ["to"],
 } as const satisfies ProjectSessionMcpInputSchema;
 
+const downloadAssetInputSchema = {
+  ...emptyInputSchema,
+  description:
+    "Download one project asset to the local filesystem and return its absolute path.",
+  properties: {
+    assetId: {
+      type: "string",
+      description: "Existing asset id from list-assets.",
+    },
+    assetsDir: {
+      type: "string",
+      description:
+        "Optional destination directory. Defaults to .webstudio/assets.",
+    },
+  },
+  required: ["assetId"],
+} as const satisfies ProjectSessionMcpInputSchema;
+
 export type ProjectSessionMcpTool = {
   name: string;
   description: string;
@@ -1507,6 +1559,52 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
       to: "https://p-destination-project-id.wstd.dev/?authToken=destination-token",
     },
   ],
+  "download-asset": [{ assetId: "asset-id" }],
+  "upload-asset": [
+    {
+      asset: {
+        name: "hero.png",
+        type: "image",
+        format: "png",
+        folderId: "folder-id",
+        meta: { width: 1200, height: 630 },
+      },
+      assetsDir: ".webstudio/assets",
+    },
+  ],
+  "upload-assets": [
+    {
+      assets: [
+        {
+          name: "hero.png",
+          type: "image",
+          format: "png",
+          folderId: "folder-id",
+          meta: { width: 1200, height: 630 },
+        },
+      ],
+      assetsDir: ".webstudio/assets",
+    },
+  ],
+  "list-asset-folders": [{}],
+  "create-asset-folder": [
+    { name: "Marketing" },
+    { name: "Photos", parentId: "marketing-folder-id" },
+  ],
+  "update-asset-folder": [
+    { folderId: "folder-id", values: { name: "Brand" } },
+    { folderId: "folder-id", values: { parentId: null } },
+  ],
+  "duplicate-asset-folder": [
+    { folderId: "folder-id" },
+    { folderId: "folder-id", parentId: "target-folder-id" },
+  ],
+  "delete-asset-folder": [{ folderId: "folder-id" }],
+  "get-asset": [{ assetId: "asset-id" }],
+  "duplicate-asset": [
+    { assetId: "asset-id" },
+    { assetId: "asset-id", folderId: "target-folder-id" },
+  ],
   "preview.start": [{ host: "127.0.0.1", port: 5173, source: "session" }],
   "preview.status": [{}],
   "preview.stop": [{}],
@@ -1534,6 +1632,16 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
     {
       parentInstanceId: "parent-id",
       component: "@webstudio-is/sdk-components-react-radix:Switch",
+    },
+  ],
+  "extract-slot": [
+    {
+      instanceSelector: ["header-section-id", "body-id"],
+      label: "Site header",
+    },
+    {
+      instanceSelector: ["header-section-id", "page-wrapper-id", "body-id"],
+      label: "Site header",
     },
   ],
   "insert-collection": [
@@ -1750,7 +1858,15 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
       assetId: "asset-id",
       values: { description: "Team collaborating around a whiteboard" },
     },
+    {
+      assetId: "asset-id",
+      values: { filename: "hero", folderId: "folder-id" },
+    },
+    { assetId: "asset-id", values: { folderId: null } },
   ],
+  "list-assets": [{}, { verbose: true }],
+  "replace-asset": [{ fromAssetId: "old-asset-id", toAssetId: "new-asset-id" }],
+  "delete-asset": [{ assetIdsOrPrefixes: ["asset-id"] }],
   "set-image-descriptions": [
     {
       updates: [
@@ -1926,6 +2042,118 @@ const previewDataSchema = {
   required: ["url", "running"],
   additionalProperties: false,
 } as const satisfies InputJsonSchema;
+
+const restorePointSummaryDataSchema = getZodObjectSchema(
+  projectSessionRestorePointSummarySchema
+);
+
+const restorePointCreateInput = z.object({ name: z.string().trim().min(1) });
+const restorePointRevertInput = z.object({ id: z.string().min(1) });
+const restorePointDeleteInput = z.object({
+  id: z.string().min(1),
+  confirm: z.literal(true),
+});
+
+const restorePointTools: readonly ProjectSessionMcpTool[] = [
+  createProjectSessionMcpTool({
+    name: "create-restore-point",
+    description:
+      "Create a named local restore point for versioned Build data before risky agent work. Asset records remain unchanged by restore points.",
+    inputSchema: getZodMcpInputSchema(restorePointCreateInput),
+    outputSchema: getMcpOutputSchema(restorePointSummaryDataSchema),
+    annotations: {
+      command: "create-restore-point",
+      operationId: "project-session.restore-point.create",
+      method: "session",
+      permit: "edit",
+      localCapable: true,
+      serverOnly: false,
+      readNamespaces: restorePointNamespaces,
+      writeNamespaces: [],
+      invalidatesNamespaces: [],
+      retryOnConflict: false,
+    },
+  }),
+  createProjectSessionMcpTool({
+    name: "list-restore-points",
+    description: "List named local restore points for the configured project.",
+    inputSchema: emptyInputSchema,
+    outputSchema: getMcpOutputSchema({
+      type: "object",
+      properties: {
+        points: { type: "array", items: restorePointSummaryDataSchema },
+      },
+      required: ["points"],
+      additionalProperties: false,
+    }),
+    annotations: {
+      command: "list-restore-points",
+      operationId: "project-session.restore-point.list",
+      method: "session",
+      permit: "api",
+      localCapable: true,
+      serverOnly: false,
+      readNamespaces: [],
+      writeNamespaces: [],
+      invalidatesNamespaces: [],
+      retryOnConflict: false,
+    },
+  }),
+  createProjectSessionMcpTool({
+    name: "delete-restore-point",
+    description:
+      "Permanently delete one local restore point after explicit confirmation.",
+    inputSchema: getZodMcpInputSchema(restorePointDeleteInput),
+    outputSchema: getMcpOutputSchema({
+      type: "object",
+      properties: { deleted: { type: "boolean" } },
+      required: ["deleted"],
+      additionalProperties: false,
+    }),
+    annotations: {
+      command: "delete-restore-point",
+      operationId: "project-session.restore-point.delete",
+      method: "session",
+      permit: "api",
+      localCapable: true,
+      serverOnly: false,
+      readNamespaces: [],
+      writeNamespaces: [],
+      invalidatesNamespaces: [],
+      retryOnConflict: false,
+    },
+  }),
+  createProjectSessionMcpTool({
+    name: "revert-to-restore-point",
+    description:
+      "Revert versioned Build data to a named restore point without changing assets. This is destructive and requires a reviewed dry-run confirmation token.",
+    inputSchema: getZodMcpInputSchema(restorePointRevertInput),
+    outputSchema: getMcpOutputSchema({
+      type: "object",
+      properties: {
+        restoredNamespaces: {
+          type: "array",
+          items: { type: "string", enum: restorePointNamespaces },
+        },
+      },
+      required: ["restoredNamespaces"],
+      additionalProperties: false,
+    }),
+    annotations: {
+      command: "revert-to-restore-point",
+      operationId: "project-session.restore-point.revert",
+      method: "session",
+      permit: "edit",
+      localCapable: true,
+      serverOnly: false,
+      readNamespaces: restorePointNamespaces,
+      writeNamespaces: restorePointNamespaces,
+      invalidatesNamespaces: [],
+      retryOnConflict: false,
+      requiresConfirm: true,
+    },
+  }),
+];
 
 const sessionTools: readonly ProjectSessionMcpTool[] = [
   createProjectSessionMcpTool({
@@ -2414,6 +2642,35 @@ const importTool = createProjectSessionMcpTool({
   },
 });
 
+const downloadAssetTool = createProjectSessionMcpTool({
+  name: "download-asset",
+  description:
+    "Download one project asset into .webstudio/assets or a specified directory and return its local path.",
+  inputSchema: downloadAssetInputSchema,
+  outputSchema: getMcpOutputSchema({
+    type: "object",
+    properties: {
+      assetId: { type: "string" },
+      path: { type: "string" },
+    },
+    required: ["assetId", "path"],
+    additionalProperties: false,
+  }),
+  mcpExamples: getMcpExamples("download-asset"),
+  annotations: {
+    command: "download-asset",
+    operationId: "assets.download",
+    method: "session",
+    permit: "view",
+    localCapable: false,
+    serverOnly: true,
+    readNamespaces: ["assets"],
+    writeNamespaces: [],
+    invalidatesNamespaces: [],
+    retryOnConflict: false,
+  },
+});
+
 const previewTools: readonly ProjectSessionMcpTool[] = [
   createProjectSessionMcpTool({
     name: "preview.start",
@@ -2563,10 +2820,12 @@ export const listProjectSessionMcpTools = (
   operations: readonly PublicMcpOperation[],
   options: {
     includeImport?: boolean;
+    includeDownloadAsset?: boolean;
     includeScreenshot?: boolean;
     includeScreenshotDiff?: boolean;
     includeInstallOcr?: boolean;
     includePreview?: boolean;
+    includeRestorePoints?: boolean;
   } = {}
 ): ProjectSessionMcpTool[] => [
   ...operations
@@ -2614,7 +2873,9 @@ export const listProjectSessionMcpTools = (
     ...tool,
     mcpExamples: getMcpExamples(tool.name),
   })),
+  ...(options.includeRestorePoints ? restorePointTools : []),
   ...(options.includeImport ? [importTool] : []),
+  ...(options.includeDownloadAsset ? [downloadAssetTool] : []),
   ...(options.includeScreenshot ? [screenshotTool] : []),
   ...(options.includeScreenshotDiff ? [screenshotDiffTool] : []),
   ...(options.includeInstallOcr ? [installOcrTool] : []),
@@ -2793,13 +3054,21 @@ const capabilityAreas = [
   },
   {
     area: "assets",
-    goal: "Manage uploaded and system fonts, plus upload, replace, delete, list, and find usage of assets.",
+    goal: "Manage asset folders and uploaded assets, including listing, creating, renaming, moving, duplicating, downloading, uploading, replacing, and deleting.",
     tools: [
+      "list-asset-folders",
+      "create-asset-folder",
+      "update-asset-folder",
+      "duplicate-asset-folder",
+      "delete-asset-folder",
       "list-assets",
+      "get-asset",
       "list-fonts",
       "upload-asset",
       "upload-assets",
+      "download-asset",
       "update-asset",
+      "duplicate-asset",
       "set-image-descriptions",
       "find-asset-usage",
       "replace-asset",
@@ -5766,11 +6035,30 @@ const getImportInput = (input: unknown): ProjectSessionImportInput => {
   };
 };
 
+const getDownloadAssetInput = (
+  input: unknown
+): ProjectSessionDownloadAssetInput => {
+  if (isRecord(input) === false) {
+    throw new Error("download-asset input must be an object.");
+  }
+  if (typeof input.assetId !== "string" || input.assetId.length === 0) {
+    throw new Error("download-asset requires assetId.");
+  }
+  return {
+    assetId: input.assetId,
+    assetsDir:
+      typeof input.assetsDir === "string" && input.assetsDir.length > 0
+        ? input.assetsDir
+        : undefined,
+  };
+};
+
 type ProjectSessionMcpCoreOptions<Command extends string> = {
   operations: readonly (PublicMcpOperation & { command: Command })[];
   createProjectSession: CreateProjectSession;
   executeOperation: ExecuteMcpOperation<Command>;
   importProject?: ImportProject;
+  downloadAsset?: DownloadAsset;
   captureScreenshot?: CaptureScreenshot;
   capturePageScreenshots?: CapturePageScreenshots;
   diffScreenshots?: DiffScreenshots;
@@ -5783,6 +6071,19 @@ type ProjectSessionMcpCoreOptions<Command extends string> = {
   storeRenderedAuditArtifacts?: (
     manifest: RenderedAuditArtifactManifest
   ) => Promise<string>;
+  restorePoints?: ProjectSessionRestorePointHandlers;
+};
+
+type ProjectSessionRestorePointHandlers = {
+  create: (input: {
+    name: string;
+  }) => Promise<ProjectSessionRestorePointSummary>;
+  list: () => Promise<{ points: ProjectSessionRestorePointSummary[] }>;
+  delete: (input: { id: string }) => Promise<{ deleted: boolean }>;
+  revert: (
+    input: { id: string },
+    options: { dryRun: boolean }
+  ) => Promise<ProjectSessionEnvelope>;
 };
 
 export const createProjectSessionMcpCore = <Command extends string = string>({
@@ -5790,6 +6091,7 @@ export const createProjectSessionMcpCore = <Command extends string = string>({
   createProjectSession,
   executeOperation,
   importProject,
+  downloadAsset,
   captureScreenshot,
   capturePageScreenshots,
   diffScreenshots,
@@ -5800,6 +6102,7 @@ export const createProjectSessionMcpCore = <Command extends string = string>({
   guidance,
   reportToolProgress,
   storeRenderedAuditArtifacts,
+  restorePoints,
 }: ProjectSessionMcpCoreOptions<Command>) => {
   let session: ReturnType<CreateProjectSession> | undefined;
   let pendingCheckpoint: ProjectSessionMcpCheckpoint | undefined;
@@ -5816,11 +6119,13 @@ export const createProjectSessionMcpCore = <Command extends string = string>({
   const listTools = () =>
     listProjectSessionMcpTools(operations, {
       includeImport: importProject !== undefined,
+      includeDownloadAsset: downloadAsset !== undefined,
       includeScreenshot: captureScreenshot !== undefined,
       includeScreenshotDiff: diffScreenshots !== undefined,
       includeInstallOcr: installOcr !== undefined,
       includePreview:
         startPreview !== undefined && getPreviewStatus !== undefined,
+      includeRestorePoints: restorePoints !== undefined,
     });
   const getSession = () => {
     session ??= createProjectSession();
@@ -6110,8 +6415,41 @@ export const createProjectSessionMcpCore = <Command extends string = string>({
         const session = getSession();
         return toCallResult(await session.reset());
       }
+      if (name === "create-restore-point" && restorePoints !== undefined) {
+        return toMetaResult(
+          await restorePoints.create(restorePointCreateInput.parse(input))
+        );
+      }
+      if (name === "list-restore-points" && restorePoints !== undefined) {
+        return toMetaResult(await restorePoints.list());
+      }
+      if (name === "delete-restore-point" && restorePoints !== undefined) {
+        const { id } = restorePointDeleteInput.parse(input);
+        return toMetaResult(await restorePoints.delete({ id }));
+      }
+      if (name === "revert-to-restore-point" && restorePoints !== undefined) {
+        const transportInput = getToolCallInput(input, true);
+        const restoreInput = restorePointRevertInput.parse(
+          transportInput.input
+        );
+        const [envelope, response] = await executeDestructiveMcpOperation({
+          command: "revert-to-restore-point",
+          input: restoreInput,
+          dryRun: dryRun || transportInput.dryRun,
+          confirmDestructive: transportInput.confirmDestructive,
+          confirmationToken: transportInput.confirmationToken,
+          executeOperation: async ({ input, dryRun }) =>
+            await restorePoints.revert(restorePointRevertInput.parse(input), {
+              dryRun,
+            }),
+        });
+        return response ?? toCallResult(envelope);
+      }
       if (name === "import" && importProject !== undefined) {
         return toMetaResult(await importProject(getImportInput(input)));
+      }
+      if (name === "download-asset" && downloadAsset !== undefined) {
+        return toMetaResult(await downloadAsset(getDownloadAssetInput(input)));
       }
       if (name === "screenshot" && captureScreenshot !== undefined) {
         return toMetaResult(
@@ -6451,6 +6789,7 @@ export const createProjectSessionMcpServer = async <
   getErrorCode,
   reportLog,
   storeRenderedAuditArtifacts,
+  restorePoints,
   onInitialized,
   toolHeartbeatIntervalMs = 10_000,
 }: Omit<ProjectSessionMcpCoreOptions<Command>, "reportToolProgress"> & {
@@ -6492,6 +6831,7 @@ export const createProjectSessionMcpServer = async <
     stopPreview,
     guidance,
     storeRenderedAuditArtifacts,
+    restorePoints,
     reportToolProgress: (message) => {
       sendLog("info", message);
     },

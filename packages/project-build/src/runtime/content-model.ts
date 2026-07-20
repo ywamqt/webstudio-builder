@@ -102,6 +102,10 @@ const getElementChildren = (
   tag: undefined | string,
   allowedCategories: undefined | string[]
 ) => {
+  // A transparent component without a known parent imposes no constraint.
+  if (tag === undefined && allowedCategories === undefined) {
+    return;
+  }
   // components without tag behave like transparent category
   // and pass through parent constraints
   let elementChildren: string[] =
@@ -301,7 +305,7 @@ export const isTreeSatisfyingContentModel = ({
   metas: Metas;
   instanceSelector: InstanceSelector;
   htmlTagsByInstanceId?: HtmlTagsByInstanceId;
-  onError?: (message: string) => void;
+  onError?: (message: string, instanceSelector: InstanceSelector) => void;
   _allowedCategories?: string[];
   _allowedAncestorCategories?: string[];
   _allowedParentCategories?: string[];
@@ -348,10 +352,14 @@ export const isTreeSatisfyingContentModel = ({
     }
     if (parentTag) {
       onError?.(
-        `Placing <${tag}> element inside a <${parentTag}> violates HTML spec.`
+        `Placing <${tag}> element inside a <${parentTag}> violates HTML spec.`,
+        instanceSelector
       );
     } else {
-      onError?.(`Placing <${tag}> element here violates HTML spec.`);
+      onError?.(
+        `Placing <${tag}> element here violates HTML spec.`,
+        instanceSelector
+      );
     }
   }
   const isComponentSatisfying = isComponentSatisfyingContentModel({
@@ -370,10 +378,14 @@ export const isTreeSatisfyingContentModel = ({
     }
     if (parentName) {
       onError?.(
-        `Placing "${name}" element inside a "${parentName}" violates content model.`
+        `Placing "${name}" element inside a "${parentName}" violates content model.`,
+        instanceSelector
       );
     } else {
-      onError?.(`Placing "${name}" element here violates content model.`);
+      onError?.(
+        `Placing "${name}" element here violates content model.`,
+        instanceSelector
+      );
     }
   }
   let isSatisfying = isTagSatisfying && isComponentSatisfying;

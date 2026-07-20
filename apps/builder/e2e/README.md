@@ -8,6 +8,15 @@ Use the full command for CI-like validation:
 pnpm e2e:builder
 ```
 
+The first run after the migrations change applies the regular migration
+pipeline and writes an ignored schema cache under `.cache/builder-e2e`.
+Subsequent runs in the same checkout restore that cache. CI does not preserve
+it between runs. Refresh it explicitly with:
+
+```sh
+pnpm e2e:builder:refresh-schema-cache
+```
+
 For local test authoring, keep the e2e backend and Builder dev server running
 and rerun only the matching test. This avoids rebuilding Builder and avoids
 restarting Docker for every edit.
@@ -69,6 +78,15 @@ Choose the shard by current CI timing, not by feature ownership. Put new or
 expensive files into the fastest shard, and rebalance later by renaming files.
 CI retries a failed shard once because a single shard rerun is cheap enough to
 absorb occasional browser/backend flakes.
+
+CI discovers its shard matrix directly from these filename tags. When one test
+file contains enough serial work to dominate a shard, add more shard tags to
+that filename. Its tests are distributed deterministically across those shards
+without duplicating the file or its helpers:
+
+```txt
+large-workflow.[shard-2].[shard-5].[shard-6].e2e.ts
+```
 
 `pnpm e2e:builder:dev` defaults to `E2E_BUILDER_URL=https://127.0.0.1:3000`,
 so it runs against the already-running Vite dev server instead of building and

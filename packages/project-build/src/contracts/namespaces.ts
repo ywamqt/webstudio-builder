@@ -18,10 +18,26 @@ export const webstudioDataNamespaces = [
   "dataSources",
   "resources",
   "assets",
+  "assetFolders",
   "breakpoints",
 ] as const;
 
 export type WebstudioDataNamespace = (typeof webstudioDataNamespaces)[number];
+
+// Page-copy operations transfer assets but not the asset-manager folder
+// hierarchy. Assets copied across projects are normalized to the root folder.
+export const pageCopyNamespaces = [
+  "pages",
+  "assets",
+  "dataSources",
+  "resources",
+  "instances",
+  "props",
+  "breakpoints",
+  "styles",
+  "styleSources",
+  "styleSourceSelections",
+] as const satisfies readonly WebstudioDataNamespace[];
 
 export const builderNamespaces = [
   ...webstudioDataNamespaces,
@@ -30,3 +46,10 @@ export const builderNamespaces = [
 ] as const;
 
 export type BuilderNamespace = (typeof builderNamespaces)[number];
+
+// Assets are persisted separately from the versioned Build row and cannot be
+// restored in the same atomic transaction.
+export const restorePointNamespaces = builderNamespaces.filter(
+  (namespace): namespace is Exclude<BuilderNamespace, "assets"> =>
+    namespace !== "assets"
+);

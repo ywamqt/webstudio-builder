@@ -12,7 +12,7 @@ import { componentMetas } from "@webstudio-is/sdk-components-registry/metas";
 import { builderPatchTransactionSchema } from "./contracts/patch";
 import { runtimeOperationContracts } from "./contracts/builder-runtime";
 import { getInputSchemaMetadata } from "./contracts/input-schema";
-import { pageExpressionFieldHint } from "./runtime/pages";
+import { pageExpressionFieldHint, pageStatusFieldHint } from "./runtime/pages";
 import { imageDescriptionsSetInput } from "./runtime/assets";
 import { BuilderRuntimeError } from "./runtime/errors";
 import {
@@ -80,6 +80,16 @@ const getTestInputSchema = (inputSchema: z.ZodTypeAny) =>
 
 const getSchemaProperties = (schema: unknown) =>
   (schema as { properties?: Record<string, unknown> }).properties ?? {};
+
+const expectPageStatusInputSchema = (schema: unknown) => {
+  expect(schema).toMatchObject({
+    description: pageStatusFieldHint,
+    anyOf: expect.arrayContaining([
+      expect.objectContaining({ type: "number" }),
+      expect.objectContaining({ type: "string" }),
+    ]),
+  });
+};
 
 const getSuccessfulOutputDataSchema = (schema: unknown) => {
   const variants = (schema as { oneOf?: unknown[] }).oneOf ?? [];
@@ -631,6 +641,119 @@ const createConnectedClient = async (
 };
 
 describe("project session mcp adapter", () => {
+  test("lists restore-point tools only when the host supports them", () => {
+    const restorePointToolNames = new Set([
+      "create-restore-point",
+      "list-restore-points",
+      "delete-restore-point",
+      "revert-to-restore-point",
+    ]);
+    expect(
+      listProjectSessionMcpTools(publicMcpOperations).some((tool) =>
+        restorePointToolNames.has(tool.name)
+      )
+    ).toBe(false);
+    expect(
+      listProjectSessionMcpTools(publicMcpOperations, {
+        includeRestorePoints: true,
+      })
+        .filter((tool) => restorePointToolNames.has(tool.name))
+        .map((tool) => tool.name)
+    ).toEqual([
+      "create-restore-point",
+      "list-restore-points",
+      "delete-restore-point",
+      "revert-to-restore-point",
+    ]);
+  });
+
+  test("requires explicit confirmation before deleting a restore point", async () => {
+    const deleteRestorePoint = vi.fn(async () => ({ deleted: true }));
+    const adapter = createProjectSessionMcpCore({
+      operations: publicMcpOperations,
+      createProjectSession: createSessionFactory(),
+      executeOperation: createExecuteOperation(),
+      restorePoints: {
+        create: vi.fn(),
+        list: vi.fn(),
+        delete: deleteRestorePoint,
+        revert: vi.fn(),
+      },
+    });
+
+    await expect(
+      adapter.callTool({
+        name: "delete-restore-point",
+        input: { id: "point-1" },
+      })
+    ).rejects.toThrow();
+
+    const result = await adapter.callTool({
+      name: "delete-restore-point",
+      input: { id: "point-1", confirm: true },
+    });
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      data: { deleted: true },
+    });
+    expect(deleteRestorePoint).toHaveBeenCalledWith({ id: "point-1" });
+  });
+
+  test("requires a matching confirmation token before reverting", async () => {
+    const revert = vi.fn(
+      async (_input: { id: string }, options: { dryRun: boolean }) =>
+        createEnvelope({
+          operationId: "project-session.restore-point.revert",
+          result: { restoredNamespaces: ["pages"] },
+          source: options.dryRun ? "dry-run" : "local",
+          state: { committed: options.dryRun === false, freshness: {} },
+          transaction: {
+            id: "restore",
+            payload: [
+              {
+                namespace: "pages",
+                patches: [{ op: "replace", path: [], value: {} }],
+              },
+            ],
+          },
+        })
+    );
+    const adapter = createProjectSessionMcpCore({
+      operations: publicMcpOperations,
+      createProjectSession: createSessionFactory(),
+      executeOperation: createExecuteOperation(),
+      restorePoints: {
+        create: vi.fn(),
+        list: vi.fn(),
+        delete: vi.fn(),
+        revert,
+      },
+    });
+
+    const planned = await adapter.callTool({
+      name: "revert-to-restore-point",
+      input: { id: "point-1", dryRun: true },
+    });
+    const confirmation = planned.structuredContent.meta.confirmation as {
+      token: string;
+    };
+    expect(confirmation.token).toBeTypeOf("string");
+    const committed = await adapter.callTool({
+      name: "revert-to-restore-point",
+      input: {
+        id: "point-1",
+        confirmDestructive: true,
+        confirmationToken: confirmation.token,
+      },
+    });
+
+    expect(committed.structuredContent.ok).toBe(true);
+    expect(revert).toHaveBeenLastCalledWith(
+      { id: "point-1" },
+      { dryRun: false }
+    );
+  });
+
   test("lists tools from the public operation catalog", () => {
     const tools = listProjectSessionMcpTools(publicMcpOperations);
     const toolNames = tools.map((tool) => tool.name);
@@ -659,7 +782,57 @@ describe("project session mcp adapter", () => {
       "reset-session",
     ]);
     expect(toolNames).toContain("insert-fragment");
+    const assetOperationTools = listProjectSessionMcpTools(
+      runtimeOperationContracts
+        .filter(
+          ({ id }) =>
+            id.startsWith("assetFolders.") ||
+            id === "assets.get" ||
+            id === "assets.duplicate"
+        )
+        .map((contract) =>
+          publicOperation({
+            command: contract.command,
+            id: contract.id,
+            method: contract.kind === "read" ? "query" : "mutation",
+            permit: contract.kind === "read" ? "view" : "build",
+            description:
+              contract.id === "assetFolders.duplicate"
+                ? "Recursively duplicate an asset folder"
+                : contract.command,
+            inputSchema: contract.inputSchema,
+            readNamespaces: contract.readNamespaces,
+            writeNamespaces: contract.writeNamespaces,
+            invalidatesNamespaces: contract.invalidatesNamespaces,
+            retryOnConflict: contract.retryOnConflict,
+          })
+        )
+    );
+    const assetOperationToolNames = assetOperationTools.map(({ name }) => name);
+    expect(assetOperationToolNames).toEqual(
+      expect.arrayContaining([
+        "list-asset-folders",
+        "create-asset-folder",
+        "update-asset-folder",
+        "duplicate-asset-folder",
+        "delete-asset-folder",
+        "get-asset",
+        "duplicate-asset",
+      ])
+    );
     expect(toolNames).not.toContain("copy-page");
+    expect(
+      assetOperationTools.find(({ name }) => name === "duplicate-asset-folder")
+    ).toMatchObject({
+      description: expect.stringContaining("Recursively duplicate"),
+      inputSchema: expect.objectContaining({ required: ["folderId"] }),
+    });
+    expect(
+      JSON.stringify(
+        assetOperationTools.find(({ name }) => name === "update-asset-folder")
+          ?.inputSchema
+      )
+    ).toContain('"type":"null"');
     for (const operation of publicMcpOperations) {
       if (
         hiddenMcpOperationCommands.has(operation.command) ||
@@ -697,11 +870,13 @@ describe("project session mcp adapter", () => {
     });
     const completeTools = listProjectSessionMcpTools(publicMcpOperations, {
       includeImport: true,
+      includeDownloadAsset: true,
       includeScreenshot: true,
       includeScreenshotDiff: true,
       includeInstallOcr: true,
       includePreview: true,
     });
+    expect(completeTools.map(({ name }) => name)).toContain("download-asset");
     for (const tool of completeTools) {
       expect(
         tool.inputSchema.additionalProperties,
@@ -997,6 +1172,32 @@ describe("project session mcp adapter", () => {
     );
   });
 
+  test("downloads assets through the MCP host", async () => {
+    const downloadAsset = vi.fn(async ({ assetId }: { assetId: string }) => ({
+      assetId,
+      path: `/workspace/.webstudio/assets/${assetId}.png`,
+    }));
+    const adapter = createProjectSessionMcpCore({
+      operations: publicMcpOperations,
+      createProjectSession: createSessionFactory(),
+      executeOperation: createExecuteOperation(),
+      downloadAsset,
+    });
+
+    const result = await adapter.callTool({
+      name: "download-asset",
+      input: { assetId: "hero" },
+    });
+
+    expect(downloadAsset).toHaveBeenCalledWith({ assetId: "hero" });
+    expect(result.structuredContent).toMatchObject({
+      data: {
+        assetId: "hero",
+        path: "/workspace/.webstudio/assets/hero.png",
+      },
+    });
+  });
+
   test("exposes page expression input descriptions to MCP clients", async () => {
     const createPageContract = runtimeOperationContracts.find(
       (contract) => contract.id === "pages.create"
@@ -1028,6 +1229,7 @@ describe("project session mcp adapter", () => {
       type: "string",
       description: pageExpressionFieldHint,
     });
+    expectPageStatusInputSchema(toolMetaProperties.status);
 
     const adapter = createProjectSessionMcpCore({
       operations: [createPageOperation],
@@ -1056,6 +1258,7 @@ describe("project session mcp adapter", () => {
       type: "string",
       description: pageExpressionFieldHint,
     });
+    expectPageStatusInputSchema(toolDetailsMetaProperties.status);
   });
 
   test("lists OCR installer only when host provides installer", () => {
