@@ -8,10 +8,8 @@ import env from "~/env/env.server";
 
 export const fileUploadPath = "public/cgi/asset";
 
-export const getMaxAssetUploadSize = () => maxSize.parse(env.MAX_UPLOAD_SIZE);
-
 export const createAssetClient = () => {
-  const maxUploadSize = getMaxAssetUploadSize();
+  const maxUploadSize = maxSize.parse(env.MAX_UPLOAD_SIZE);
   if (
     env.S3_ENDPOINT !== undefined &&
     env.S3_REGION !== undefined &&

@@ -46,10 +46,7 @@ import type { BuilderRuntimeContext } from "./context";
 import { isFragmentContentModeCopyableProp } from "./content-mode-copy-policy";
 import { findAvailableVariables } from "./data";
 import { addZodValidationIssue, throwBuilderRuntimeError } from "./errors";
-import {
-  detectFragmentTokenConflicts,
-  insertWebstudioFragmentCopy,
-} from "./fragment";
+import { insertWebstudioFragmentCopy } from "./fragment";
 import {
   createInstanceAppendPayload,
   createInstanceChild,
@@ -60,7 +57,6 @@ import { createRuntimeMutation, type BuilderRuntimeMutation } from "./mutation";
 import { getSlotFragmentDropTargetMutable } from "./slot";
 import type { ConflictResolution } from "./style-copy";
 import { findPageAndSelectorByInstanceId } from "./lookup";
-import { validateFragmentHtmlEmbedCode } from "./html-embed";
 import { z } from "zod";
 
 const conflictResolutionInput = z.enum(["ours", "theirs", "merge"]);
@@ -1043,24 +1039,6 @@ export const insertFragment = (
   input: z.infer<typeof insertFragmentInput>,
   context: BuilderRuntimeContext
 ): BuilderRuntimeMutation<FragmentInsertResult> => {
-  const htmlEmbedError = validateFragmentHtmlEmbedCode(input.fragment);
-  if (htmlEmbedError !== undefined) {
-    return throwBuilderRuntimeError("BAD_REQUEST", htmlEmbedError.message);
-  }
-  if (input.conflictResolution === undefined) {
-    const conflicts = detectFragmentTokenConflicts({
-      fragment: input.fragment,
-      targetData: getRequiredComponentInsertState(state),
-    });
-    if (conflicts.length > 0) {
-      return throwBuilderRuntimeError(
-        "CONFLICT",
-        `Design token conflicts require an explicit conflictResolution (ours, theirs, or merge): ${conflicts
-          .map(({ tokenName }) => tokenName)
-          .join(", ")}`
-      );
-    }
-  }
   if (input.fragment.children.length === 0) {
     return createInsertTokenFragmentMutation({
       state,

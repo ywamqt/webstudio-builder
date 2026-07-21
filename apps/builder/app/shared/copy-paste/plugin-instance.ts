@@ -3,7 +3,6 @@ import {
   findSafeFragmentPasteTarget,
   getCommonAncestorSelector,
   getPasteRootInstanceIds,
-  getFragmentContentModelWarnings,
   mergeWebstudioFragments,
 } from "@webstudio-is/project-build/runtime";
 import {
@@ -38,7 +37,6 @@ import {
   clearInstanceSelection,
   $selectedInstancePath,
   $selectedInstanceSelector,
-  $registeredComponentMetas,
   selectInstances,
 } from "~/shared/nano-states";
 import { getInstancePath } from "@webstudio-is/project-build/runtime";
@@ -46,7 +44,6 @@ import { builderApi } from "../builder-api";
 import { pasteHandled, pasteIgnored, type Plugin } from "./copy-paste";
 import { breakpointPasteLimitWarning } from "@webstudio-is/project-build/runtime";
 import { resolveFragmentTokenConflicts } from "../resolve-token-conflicts";
-import { reportFragmentContentModelWarnings } from "./fragment-utils";
 
 const invalidPasteDataMessage =
   "Could not paste Webstudio instance data. The clipboard data appears to be incomplete or invalid.";
@@ -159,9 +156,7 @@ const findPasteTargetForFragment = (
 ): undefined | Insertable => {
   const instances = $instances.get();
 
-  insertable = findClosestInsertable(fragment, insertable, {
-    allowContentModelWarnings: true,
-  });
+  insertable = findClosestInsertable(fragment, insertable);
   if (insertable === undefined) {
     return;
   }
@@ -213,10 +208,6 @@ const insertPastedFragment = async ({
   selectRootInstances: (rootInstanceIds: Instance["id"][]) => void;
 }) => {
   try {
-    const contentModelWarnings = getFragmentContentModelWarnings({
-      fragment,
-      metas: $registeredComponentMetas.get(),
-    });
     const conflictResolution = await resolveFragmentTokenConflicts(fragment);
     if (conflictResolution === "cancel") {
       return;
@@ -240,7 +231,6 @@ const insertPastedFragment = async ({
     if (result?.result.didMergeBreakpointsDueToLimit === true) {
       toast.warn(breakpointPasteLimitWarning);
     }
-    reportFragmentContentModelWarnings(contentModelWarnings);
     selectRootInstances(rootInstanceIds);
   } catch (error) {
     // User cancelled

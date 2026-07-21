@@ -1,20 +1,12 @@
 import { json, type ActionFunctionArgs } from "@remix-run/server-runtime";
-import { arrayBuffer } from "node:stream/consumers";
 import {
   createUploadTicket,
-  createSizeLimiter,
-  assetDataOverride,
-  getContentHash,
   uploadFile,
   type UploadErrorCleanup,
 } from "@webstudio-is/asset-uploader/index.server";
 import { isAssetFileName } from "@webstudio-is/protocol";
-import type { Asset } from "@webstudio-is/sdk";
 import type { AssetActionResponse } from "~/builder/shared/assets";
-import {
-  createAssetClient,
-  getMaxAssetUploadSize,
-} from "~/shared/asset-client";
+import { createAssetClient } from "~/shared/asset-client";
 import { createContext } from "~/shared/context.server";
 import { preventCrossOriginCookie } from "~/services/no-cross-origin-cookie";
 import { checkCsrf } from "~/services/csrf-session.server";
@@ -34,17 +26,12 @@ const createAssetUploadResponse = async ({
   context,
   name,
   assetInfoFallback,
-  assetInfoOverride,
   onUploadError,
 }: {
   body: ReadableStream<Uint8Array>;
   context: Awaited<ReturnType<typeof createContext>>;
   name: string;
   assetInfoFallback: AssetInfoFallback;
-  assetInfoOverride?: {
-    format?: string;
-    meta?: Record<string, unknown>;
-  };
   onUploadError?: UploadErrorCleanup;
 }) => {
   const asset = await uploadFile(
@@ -53,47 +40,12 @@ const createAssetUploadResponse = async ({
     createAssetClient(),
     context,
     assetInfoFallback,
-    assetInfoOverride,
     onUploadError
   );
-  return json(
-    {
-      uploadedAssets: [asset],
-      deduplicated: false,
-    } satisfies AssetActionResponse,
-    {
-      headers: privateNoStoreResponseHeaders,
-    }
-  );
+  return json({ uploadedAssets: [asset] } satisfies AssetActionResponse, {
+    headers: privateNoStoreResponseHeaders,
+  });
 };
-
-const createDeduplicatedAssetResponse = (asset: Asset) => {
-  return json(
-    {
-      uploadedAssets: [asset],
-      deduplicated: true,
-    } satisfies AssetActionResponse,
-    {
-      headers: privateNoStoreResponseHeaders,
-    }
-  );
-};
-
-const createRequestBody = (data: Uint8Array) =>
-  new Blob([data as Uint8Array<ArrayBuffer>]).stream();
-
-const readRequestBody = async (
-  body: ReadableStream<Uint8Array>,
-  name: string
-) =>
-  new Uint8Array(
-    await arrayBuffer(
-      createSizeLimiter(
-        getMaxAssetUploadSize(),
-        name
-      )(body as unknown as AsyncIterable<Uint8Array>)
-    )
-  );
 
 const createApiUploadErrorCleanup =
   (assetId: string, projectId: string): UploadErrorCleanup =>
@@ -129,7 +81,6 @@ export const action = async (props: ActionFunctionArgs) => {
   const folderId = url.searchParams.get("folderId") ?? undefined;
   const description =
     request.headers.get("x-webstudio-asset-description") ?? undefined;
-  const rawAssetMeta = request.headers.get("x-webstudio-asset-meta");
   const rawAssetType = url.searchParams.get("type");
   const isApiUpload = projectId !== null || rawAssetType !== null;
 
@@ -164,15 +115,9 @@ export const action = async (props: ActionFunctionArgs) => {
             : undefined,
         searchParams: url.searchParams,
       });
-      const assetInfoOverride = assetDataOverride.parse({
-        format: url.searchParams.get("format") ?? undefined,
-        meta: rawAssetMeta === null ? undefined : JSON.parse(rawAssetMeta),
-      });
 
       const context = await createContext(request);
       await assertApiProjectPermit(context, projectId, "build");
-      const data = await readRequestBody(request.body, params.name);
-      const force = url.searchParams.get("force") === "true";
       const ticket = await createUploadTicket(
         {
           projectId,
@@ -180,19 +125,14 @@ export const action = async (props: ActionFunctionArgs) => {
           filename: params.name,
           description,
           folderId,
-          contentHash: force ? undefined : await getContentHash(data),
         },
         context
       );
-      if (ticket.deduplicated) {
-        return createDeduplicatedAssetResponse(ticket.asset);
-      }
       return await createAssetUploadResponse({
-        body: createRequestBody(data),
+        body: request.body,
         context,
         name: ticket.name,
         assetInfoFallback,
-        assetInfoOverride,
         onUploadError: createApiUploadErrorCleanup(ticket.assetId, projectId),
       });
     }

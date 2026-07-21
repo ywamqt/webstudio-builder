@@ -135,7 +135,6 @@ export type UploadingFileData = Simplify<
     | {
         source: "file";
         file: File;
-        contentHash?: string;
       }
     | {
         source: "url";

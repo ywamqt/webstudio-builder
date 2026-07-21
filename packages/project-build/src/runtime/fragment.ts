@@ -702,7 +702,6 @@ export const insertWebstudioFragmentCopy = ({
         styleSources,
         styleSourceSelections,
         styles,
-        styleSourceIdMap,
         mergedBreakpointIds,
       });
     }

@@ -23,7 +23,6 @@ export type AssetContainer = UploadedAssetContainer | UploadingAssetContainer;
 
 export type AssetActionResponse = {
   uploadedAssets?: Array<Asset>;
-  deduplicated?: boolean;
   deletedAssets?: Array<Asset>;
   errors?: string;
 };

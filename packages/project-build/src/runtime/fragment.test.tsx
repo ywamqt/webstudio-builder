@@ -33,7 +33,6 @@ import {
   ActionValue,
   renderTemplate,
   Parameter,
-  token,
 } from "@webstudio-is/template";
 import { findAvailableVariables } from "./data";
 
@@ -337,61 +336,6 @@ test("insert instances with slots", () => {
     expect.objectContaining({ component: "Slot" }),
     expect.objectContaining({ component: "Slot" }),
   ]);
-});
-
-test("remap token selections in inserted slot content", () => {
-  const data = renderData(<$.Body ws:id="bodyId"></$.Body>);
-  const fragment = renderTemplate(
-    <$.Slot ws:id="slotId">
-      <$.Fragment ws:id="fragmentId">
-        <$.HtmlEmbed
-          ws:id="iconId"
-          ws:tokens={[
-            token(
-              "Accordion Icon",
-              css`
-                color: red;
-              `
-            ),
-          ]}
-        />
-      </$.Fragment>
-    </$.Slot>
-  );
-
-  insertWebstudioFragmentCopy({
-    data,
-    fragment,
-    availableVariables: [],
-    projectId: "",
-  });
-
-  const [insertedTokenId] =
-    data.styleSourceSelections.get("iconId")?.values ?? [];
-  expect(data.styleSources.get(insertedTokenId)).toMatchObject({
-    type: "token",
-    name: "Accordion Icon",
-  });
-});
-
-test("preserves legacy HtmlEmbed code when copying internal fragments", () => {
-  const data = renderData(<$.Body ws:id="bodyId"></$.Body>);
-  const fragment = renderTemplate(<$.HtmlEmbed code="<div><span></div>" />);
-
-  insertWebstudioFragmentCopy({
-    data,
-    fragment,
-    availableVariables: [],
-    projectId: "",
-  });
-
-  expect(Array.from(data.props.values())).toContainEqual(
-    expect.objectContaining({
-      name: "code",
-      type: "string",
-      value: "<div><span></div>",
-    })
-  );
 });
 
 test("insert instances with multiple roots", () => {

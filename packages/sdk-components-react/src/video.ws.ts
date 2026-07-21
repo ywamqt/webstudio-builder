@@ -5,6 +5,10 @@ import { props } from "./__generated__/video.props";
 
 export const meta: WsComponentMeta = {
   icon: VideoIcon,
+  contentModel: {
+    category: "instance",
+    children: [],
+  },
   presetStyle: {
     video: [
       {

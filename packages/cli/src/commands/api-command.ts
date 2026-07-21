@@ -21,7 +21,6 @@ import {
   isMissingApiAccessError,
 } from "../error-codes";
 import { printJson } from "../json-output";
-import { isPlainRecord } from "../type-utils";
 import {
   executeProjectSessionApiOperation,
   getProjectSessionMeta,
@@ -70,19 +69,7 @@ export const apiCommandOptions = (yargs: CommonYargsArgv) =>
       type: "boolean",
       describe:
         "Refresh required local project namespaces from the remote project before running a local-capable command.",
-    })
-    .option("project", {
-      type: "string",
-      describe:
-        "Use a previously linked project instead of the project linked to the current directory",
     });
-
-export const permissionsCommandOptions = (yargs: CommonYargsArgv) =>
-  apiCommandOptions(yargs).option("json", {
-    type: "boolean",
-    describe: "Print a machine-readable JSON response to stdout",
-    default: false,
-  });
 
 const outputDetailCommandOptions = (yargs: CommonYargsArgv) =>
   yargs
@@ -1300,7 +1287,6 @@ export const deleteAssetCommandOptions = (yargs: CommonYargsArgv) =>
 
 export type ApiCommandOptions = {
   command: ApiCommandName;
-  project?: string;
   json?: boolean;
   include?: string[];
   version?: number;
@@ -3100,7 +3086,7 @@ const apiCommandHandlers: Partial<Record<ApiCommandName, ApiCommandHandler>> = {
   "delete-asset": async (options, connection, dependencies) => {
     requireTrueOption(options.confirm, "--confirm");
     const input = {
-      assetIds: requireListOption(options.asset, "--asset"),
+      assetIdsOrPrefixes: requireListOption(options.asset, "--asset"),
       force: options.force,
     };
     return runProjectSessionCommand(
@@ -3112,26 +3098,6 @@ const apiCommandHandlers: Partial<Record<ApiCommandName, ApiCommandHandler>> = {
   },
 };
 
-const printPermissions = (result: unknown) => {
-  if (isPlainRecord(result) === false) {
-    throw new Error("The server returned invalid project permissions.");
-  }
-  console.info(`Project role: ${String(result.relation ?? "unknown")}`);
-  const permits = Array.isArray(result.permits)
-    ? result.permits.filter(
-        (permit): permit is string => typeof permit === "string"
-      )
-    : [];
-  console.info(
-    `Permits: ${permits.length === 0 ? "none" : permits.join(", ")}`
-  );
-  for (const [name, value] of Object.entries(result)) {
-    if (name.startsWith("can") && typeof value === "boolean") {
-      console.info(`${name}: ${value ? "yes" : "no"}`);
-    }
-  }
-};
-
 export const apiCommand = async (
   options: ApiCommandOptions,
   dependencies = defaultDependencies
@@ -3139,19 +3105,11 @@ export const apiCommand = async (
   const start = Date.now();
   let projectId: string | undefined;
   try {
-    if (
-      options.json !== true &&
-      options.command !== "audit" &&
-      options.command !== "permissions"
-    ) {
+    if (options.json !== true && options.command !== "audit") {
       throw new Error(`${options.command} currently requires --json.`);
     }
 
-    const connection = await resolveApiConnection(
-      dependencies,
-      undefined,
-      options.project
-    );
+    const connection = await resolveApiConnection(dependencies);
     projectId = connection.projectId;
     const apiConnection = {
       ...connection,
@@ -3182,8 +3140,6 @@ export const apiCommand = async (
       : response;
     if (options.command === "audit" && options.json !== true) {
       printAuditReport(result);
-    } else if (options.command === "permissions" && options.json !== true) {
-      printPermissions(result);
     } else {
       printJson({
         ok: true,

@@ -103,7 +103,7 @@ import {
   type PrePublishAuditFinding,
 } from "@webstudio-is/project-build/runtime";
 
-const PrePublishAuditMessage = ({
+const PrePublishAuditError = ({
   finding,
 }: {
   finding: PrePublishAuditFinding;
@@ -164,7 +164,7 @@ const PrePublishAuditMessage = ({
   );
 };
 
-const getPrePublishAuditMessages = () => {
+const getPrePublishAuditError = () => {
   const findings = runPrePublishAudit({
     pages: $pages.get(),
     instances: $instances.get(),
@@ -173,14 +173,8 @@ const getPrePublishAuditMessages = () => {
     resources: $resources.get(),
     metas: $registeredComponentMetas.get(),
   });
-  const getMessage = (severity: PrePublishAuditFinding["severity"]) => {
-    const finding = findings.find((item) => item.severity === severity);
-    return finding && <PrePublishAuditMessage finding={finding} />;
-  };
-  return {
-    error: getMessage("error"),
-    warning: getMessage("warning"),
-  };
+  const finding = findings.find(({ severity }) => severity === "error");
+  return finding && <PrePublishAuditError finding={finding} />;
 };
 
 type ChangeProjectDomainProps = {
@@ -469,9 +463,6 @@ const Publish = ({
   const [publishError, setPublishError] = useState<
     undefined | JSX.Element | string
   >();
-  const [publishWarning, setPublishWarning] = useState<
-    undefined | JSX.Element | string
-  >();
   const [isPublishing, setIsPublishing] = useOptimistic(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [hasSelectedDomains, setHasSelectedDomains] = useState(false);
@@ -520,7 +511,27 @@ const Publish = ({
     };
   }, [project.domain]);
 
-  const publish = async (domains: string[]) => {
+  const handlePublish = async (formData: FormData) => {
+    setPublishError(undefined);
+
+    const auditError = getPrePublishAuditError();
+    if (auditError !== undefined) {
+      toast.error(auditError);
+      setPublishError(auditError);
+      return;
+    }
+
+    // Custom domain checkboxes are disabled on free plan so they are never
+    // submitted — only the staging (wstd.io) domain can appear in formData.
+    const domains = formData
+      .getAll(domainToPublishName)
+      .map((domainEntry) => domainEntry.toString());
+
+    if (domains.length === 0) {
+      toast.error("Please select at least one domain to publish");
+      return;
+    }
+
     setIsPublishing(true);
 
     const publishResult = await nativeClient.domain.publish.mutate({
@@ -617,38 +628,6 @@ const Publish = ({
     }
   };
 
-  const handlePublish = (formData: FormData) => {
-    setPublishError(undefined);
-    setPublishWarning(undefined);
-
-    const { error: auditError, warning: auditWarning } =
-      getPrePublishAuditMessages();
-    if (auditError !== undefined) {
-      toast.error(auditError);
-      setPublishError(auditError);
-      return;
-    }
-    if (auditWarning !== undefined) {
-      toast.warn(auditWarning);
-      setPublishWarning(auditWarning);
-    }
-
-    // Custom domain checkboxes are disabled on free plan so they are never
-    // submitted — only the staging (wstd.io) domain can appear in formData.
-    const domains = formData
-      .getAll(domainToPublishName)
-      .map((domainEntry) => domainEntry.toString());
-
-    if (domains.length === 0) {
-      toast.error("Please select at least one domain to publish");
-      return;
-    }
-
-    startTransition(async () => {
-      await publish(domains);
-    });
-  };
-
   const hasPendingState = project.latestBuildVirtual
     ? getPublishStatusAndText(project.latestBuildVirtual).status === "PENDING"
     : false;
@@ -660,11 +639,6 @@ const Publish = ({
   return (
     <Flex gap={2} shrink={false} direction={"column"}>
       {publishError && <Text color="destructive">{publishError}</Text>}
-      {publishWarning && (
-        <PanelBanner variant="warning">
-          <Text>{publishWarning}</Text>
-        </PanelBanner>
-      )}
 
       <Tooltip
         content={
@@ -677,13 +651,7 @@ const Publish = ({
       >
         <Button
           ref={buttonRef}
-          type="button"
-          onClick={() => {
-            const form = buttonRef.current?.closest("form");
-            if (form) {
-              handlePublish(new FormData(form));
-            }
-          }}
+          formAction={handlePublish}
           color="positive"
           state={showPendingState ? "pending" : undefined}
           disabled={
@@ -744,7 +712,6 @@ const PublishStatic = ({
   const project = useStore($project);
   const [_, startTransition] = useTransition();
   const [publishError, setPublishError] = useState<JSX.Element | string>();
-  const [publishWarning, setPublishWarning] = useState<JSX.Element | string>();
 
   if (project == null) {
     throw new Error("Project not found");
@@ -762,11 +729,6 @@ const PublishStatic = ({
   return (
     <Flex gap={2} shrink={false} direction={"column"}>
       {publishError && <Text color="destructive">{publishError}</Text>}
-      {publishWarning && (
-        <PanelBanner variant="warning">
-          <Text>{publishWarning}</Text>
-        </PanelBanner>
-      )}
       {status === "FAILED" && <Text color="destructive">{statusText}</Text>}
 
       <Tooltip
@@ -777,22 +739,16 @@ const PublishStatic = ({
           color="positive"
           state={isPublishInProgress ? "pending" : undefined}
           onClick={() => {
-            setPublishError(undefined);
-            setPublishWarning(undefined);
-            const { error: auditError, warning: auditWarning } =
-              getPrePublishAuditMessages();
-            if (auditError !== undefined) {
-              toast.error(auditError);
-              setPublishError(auditError);
-              return;
-            }
-            if (auditWarning !== undefined) {
-              toast.warn(auditWarning);
-              setPublishWarning(auditWarning);
-            }
-
             startTransition(async () => {
               try {
+                setPublishError(undefined);
+                const auditError = getPrePublishAuditError();
+                if (auditError !== undefined) {
+                  toast.error(auditError);
+                  setPublishError(auditError);
+                  return;
+                }
+
                 setIsPendingOptimistic(true);
 
                 const result = await nativeClient.domain.publish.mutate({

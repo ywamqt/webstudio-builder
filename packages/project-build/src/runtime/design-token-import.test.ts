@@ -1,5 +1,4 @@
 import { describe, expect, test } from "vitest";
-import { ROOT_INSTANCE_ID } from "@webstudio-is/sdk";
 import type { BuilderState } from "../state/builder-state";
 import { applyBuilderPatchTransactions } from "../state/patch";
 import {
@@ -45,8 +44,8 @@ const setupRootStyleSource = (state: BuilderState) => {
     id: "root-local",
     type: "local",
   });
-  state.styleSourceSelections?.set(ROOT_INSTANCE_ID, {
-    instanceId: ROOT_INSTANCE_ID,
+  state.styleSourceSelections?.set("root", {
+    instanceId: "root",
     values: ["root-local"],
   });
 };

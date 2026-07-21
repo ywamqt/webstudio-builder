@@ -131,8 +131,8 @@ export const detectTokenConflicts = ({
   mergedBreakpointIds: Map<Breakpoint["id"], Breakpoint["id"]>;
 }): TokenConflict[] => {
   const conflicts: TokenConflict[] = [];
-  const comparedTokens = Array.from(existingStyleSources.values());
-  const comparedStyles = Array.from(existingStyles.values());
+  const existingTokens = Array.from(existingStyleSources.values());
+  const existingStylesArray = Array.from(existingStyles.values());
 
   for (const styleSource of fragmentStyleSources) {
     if (styleSource.type !== "token") {
@@ -144,15 +144,15 @@ export const detectTokenConflicts = ({
       tokenStyles: fragmentStyles.filter(
         (decl) => decl.styleSourceId === styleSource.id
       ),
-      existingTokens: comparedTokens,
-      existingStyles: comparedStyles,
+      existingTokens,
+      existingStyles: existingStylesArray,
       breakpoints,
       mergedBreakpointIds,
     });
 
     if (result.hasConflict) {
       // Find the first existing token with the same name for display purposes
-      const existingToken = comparedTokens.find(
+      const existingToken = existingTokens.find(
         (token) => token.type === "token" && token.name === styleSource.name
       );
       if (existingToken && existingToken.type === "token") {
@@ -163,16 +163,6 @@ export const detectTokenConflicts = ({
           existingToken,
         });
       }
-      continue;
-    }
-
-    if (result.matchingToken === undefined) {
-      comparedTokens.push(styleSource);
-      comparedStyles.push(
-        ...fragmentStyles.filter(
-          (declaration) => declaration.styleSourceId === styleSource.id
-        )
-      );
     }
   }
 
@@ -235,23 +225,6 @@ export const insertStyleSources = ({
   const styleSourceIds = new Set<StyleSource["id"]>();
   const styleSourceIdMap = new Map<StyleSource["id"], StyleSource["id"]>(); // old id -> new id
   const updatedStyleSources = new Map(existingStyleSources);
-  const comparedStyles = new Map(existingStyles);
-
-  const trackIncomingStyles = (fromId: string, toId: string) => {
-    for (const declaration of fragmentStyles) {
-      if (declaration.styleSourceId !== fromId) {
-        continue;
-      }
-      const tracked = {
-        ...declaration,
-        styleSourceId: toId,
-        breakpointId:
-          mergedBreakpointIds.get(declaration.breakpointId) ??
-          declaration.breakpointId,
-      };
-      comparedStyles.set(getStyleDeclKey(tracked), tracked);
-    }
-  };
 
   for (const styleSource of fragmentStyleSources) {
     if (styleSource.type === "local") {
@@ -273,7 +246,7 @@ export const insertStyleSources = ({
           (decl) => decl.styleSourceId === originalFragmentTokenId
         ),
         existingTokens: tokensWithSameName,
-        existingStyles: Array.from(comparedStyles.values()),
+        existingStyles: Array.from(existingStyles.values()),
         breakpoints,
         mergedBreakpointIds,
       });
@@ -307,7 +280,6 @@ export const insertStyleSources = ({
           // Mark the existing token for style insertion
           // This will allow the fragment styles to be added/merged
           styleSourceIds.add(originalFragmentTokenId);
-          trackIncomingStyles(originalFragmentTokenId, existingToken.id);
           continue;
         } else {
           // Default: add counter suffix
@@ -325,7 +297,6 @@ export const insertStyleSources = ({
           styleSourceIds.add(originalFragmentTokenId);
           updatedStyleSources.set(newTokenId, newStyleSource);
           styleSourceIdMap.set(originalFragmentTokenId, newTokenId);
-          trackIncomingStyles(originalFragmentTokenId, newTokenId);
 
           // Add to tracking maps
           const tokensWithNewName = existingTokensByName.get(newName) ?? [];
@@ -341,7 +312,6 @@ export const insertStyleSources = ({
     styleSourceIds.add(originalFragmentTokenId);
     updatedStyleSources.set(newTokenId, newStyleSource);
     styleSourceIdMap.set(originalFragmentTokenId, newTokenId);
-    trackIncomingStyles(originalFragmentTokenId, newTokenId);
 
     // Add to tracking maps
     const tokensWithName = existingTokensByName.get(styleSource.name) ?? [];
@@ -422,7 +392,6 @@ export const insertPortalLocalStyleSources = ({
   styleSources,
   styleSourceSelections,
   styles,
-  styleSourceIdMap,
   mergedBreakpointIds,
 }: {
   fragmentStyleSources: StyleSource[];
@@ -432,7 +401,6 @@ export const insertPortalLocalStyleSources = ({
   styleSources: StyleSources;
   styleSourceSelections: StyleSourceSelections;
   styles: Styles;
-  styleSourceIdMap: Map<StyleSource["id"], StyleSource["id"]>;
   mergedBreakpointIds: Map<Breakpoint["id"], Breakpoint["id"]>;
 }): void => {
   const instanceStyleSourceIds = new Set<StyleSource["id"]>();
@@ -441,11 +409,8 @@ export const insertPortalLocalStyleSources = ({
     if (instanceIds.has(instanceId) === false) {
       continue;
     }
-    const values = styleSourceSelection.values.map(
-      (styleSourceId) => styleSourceIdMap.get(styleSourceId) ?? styleSourceId
-    );
-    styleSourceSelections.set(instanceId, { instanceId, values });
-    for (const styleSourceId of values) {
+    styleSourceSelections.set(instanceId, styleSourceSelection);
+    for (const styleSourceId of styleSourceSelection.values) {
       instanceStyleSourceIds.add(styleSourceId);
     }
   }
