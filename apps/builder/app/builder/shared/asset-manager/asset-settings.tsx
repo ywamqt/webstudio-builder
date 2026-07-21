@@ -70,7 +70,7 @@ import {
 } from "~/shared/sync/data-stores";
 import {
   formatAssetName,
-  parseAssetName,
+  getAssetDisplayNameParts,
 } from "@webstudio-is/project-build/runtime";
 import { AssetFolderSelector } from "./asset-folder-selector";
 import { moveAssetManagerItems } from "./asset-manager-operations";
@@ -100,6 +100,19 @@ const buttonLinkClass = css({
   cursor: "pointer",
   ...textVariants.link,
 }).toString();
+
+const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+const formatDateTime = (date: string) => {
+  try {
+    return dateTimeFormatter.format(new Date(date));
+  } catch {
+    return date;
+  }
+};
 
 const AssetUsagesList = ({ usages }: { usages: AssetUsage[] }) => {
   const props = useStore($props);
@@ -300,38 +313,34 @@ const AssetSettingsContent = ({
   focusName: boolean;
 }) => {
   const { canDownloadAssets } = useStore($permissions);
-  const { size, meta, id, name } = asset;
-  const { basename, ext } = parseAssetName(name);
+  const { size, meta, id } = asset;
+  const { basename, ext } = getAssetDisplayNameParts(asset);
   const [filenameError, setFilenameError] = useState<string>();
-  const [filename, setFilename] = useLocalValue(
-    asset.filename ?? basename,
-    (newFilename) => {
-      const assetId = asset.id;
-      // validate filename
-      if (!isValidFilename(newFilename)) {
-        setFilenameError("Invalid filename");
-        return;
-      }
-      // validate duplicates
-      for (const asset of $assets.get().values()) {
-        if (asset.id !== assetId) {
-          const filename =
-            asset.filename ?? parseAssetName(asset.name).basename;
-          if (newFilename === filename) {
-            setFilenameError("Filename already used");
-            return;
-          }
+  const [filename, setFilename] = useLocalValue(basename, (newFilename) => {
+    const assetId = asset.id;
+    // validate filename
+    if (!isValidFilename(newFilename)) {
+      setFilenameError("Invalid filename");
+      return;
+    }
+    // validate duplicates
+    for (const asset of $assets.get().values()) {
+      if (asset.id !== assetId) {
+        const { basename: filename } = getAssetDisplayNameParts(asset);
+        if (newFilename === filename) {
+          setFilenameError("Filename already used");
+          return;
         }
       }
-      executeRuntimeMutation({
-        id: "assets.update",
-        input: {
-          assetId,
-          values: { filename: newFilename },
-        },
-      });
     }
-  );
+    executeRuntimeMutation({
+      id: "assets.update",
+      input: {
+        assetId,
+        values: { filename: newFilename },
+      },
+    });
+  });
   const [description, setDescription] = useLocalValue(
     asset.description ?? "",
     (newDescription) => {
@@ -413,6 +422,29 @@ const AssetSettingsContent = ({
         </Grid>
       </Box>
 
+      <Grid
+        columns={2}
+        css={{
+          padding: theme.panel.padding,
+          gridTemplateColumns: "auto 1fr",
+          columnGap: theme.spacing[5],
+          rowGap: theme.spacing[3],
+        }}
+      >
+        <Text variant="labels">Created</Text>
+        <Text variant="labels" align="right">
+          {formatDateTime(asset.createdAt)}
+        </Text>
+        {asset.updatedAt && (
+          <>
+            <Text variant="labels">Last modified</Text>
+            <Text variant="labels" align="right">
+              {formatDateTime(asset.updatedAt)}
+            </Text>
+          </>
+        )}
+      </Grid>
+
       <Grid css={{ padding: theme.panel.padding, gap: 4 }}>
         <Label htmlFor="asset-manager-filename">Name</Label>
         <InputErrorsTooltip
@@ -420,10 +452,24 @@ const AssetSettingsContent = ({
         >
           <InputField
             id="asset-manager-filename"
+            aria-describedby={
+              ext === "" ? undefined : "asset-manager-filename-extension"
+            }
             autoFocus={focusName}
             readOnly={authPermit === "view"}
             color={filenameError ? "error" : undefined}
             value={filename}
+            suffix={
+              ext === "" ? undefined : (
+                <Text
+                  id="asset-manager-filename-extension"
+                  color="subtle"
+                  variant="labels"
+                >
+                  .{ext}
+                </Text>
+              )
+            }
             onChange={(event) => {
               setFilename(event.target.value);
               setFilenameError(undefined);
@@ -606,6 +652,13 @@ export const AssetSettings = ({
           onOpenChange(false);
           onDelete();
         };
+  const replaceAsset =
+    onReplace === undefined
+      ? undefined
+      : () => {
+          onOpenChange(false);
+          onReplace();
+        };
   return (
     <Popover modal open={open} onOpenChange={onOpenChange}>
       {usages.length === 0 && (
@@ -622,7 +675,7 @@ export const AssetSettings = ({
           asset={asset}
           usages={usages}
           onDelete={deleteAsset}
-          onReplace={onReplace}
+          onReplace={replaceAsset}
           focusName={focusName}
         />
       </PopoverContent>

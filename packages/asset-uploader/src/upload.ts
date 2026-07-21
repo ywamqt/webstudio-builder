@@ -5,9 +5,10 @@ import {
   getProjectPlanFeatures,
 } from "@webstudio-is/trpc-interface/index.server";
 import { nanoid } from "nanoid";
-import type { Asset } from "@webstudio-is/sdk";
+import { getFileNameParts, type Asset } from "@webstudio-is/sdk";
+import type { Database } from "@webstudio-is/postgrest/index.server";
 import type { AssetClient } from "./client";
-import { getUniqueFilename } from "./utils/get-unique-filename";
+import { createUniqueAssetFilename } from "./utils/get-unique-filename";
 import { sanitizeS3Key } from "./utils/sanitize-s3-key";
 import { formatAsset } from "./utils/format-asset";
 
@@ -15,6 +16,8 @@ type UploadData = {
   projectId: string;
   type: string;
   filename: string;
+  displayFilename?: string;
+  description?: string;
   folderId?: string;
 };
 
@@ -31,12 +34,33 @@ export type UploadErrorCleanup = (
   context: AppContext
 ) => Promise<void>;
 
+const cleanupUploadError = async (
+  name: string,
+  context: AppContext,
+  onUploadError?: UploadErrorCleanup
+) => {
+  if (onUploadError) {
+    await onUploadError(name, context);
+    return;
+  }
+  await context.postgrest.client.from("Asset").delete().eq("name", name);
+  await context.postgrest.client.from("File").delete().eq("name", name);
+};
+
 export const createUploadTicket = async (
   data: UploadData,
   context: AppContext,
   createId: () => Asset["id"] = nanoid
 ): Promise<UploadTicket> => {
-  const { projectId, type, filename, folderId } = data;
+  const {
+    projectId,
+    type,
+    filename,
+    displayFilename = getFileNameParts(filename).basename,
+    description,
+    folderId,
+  } = data;
+  const sanitizedFilename = sanitizeS3Key(filename);
   const canEdit = await authorizeProject.hasProjectPermit(
     { projectId, permit: "edit" },
     context
@@ -103,7 +127,7 @@ export const createUploadTicket = async (
     attempt += 1
   ) {
     const assetId = createId();
-    const name = getUniqueFilename(sanitizeS3Key(filename));
+    const name = createUniqueAssetFilename(sanitizedFilename);
 
     const fileInsert = await context.postgrest.client.from("File").insert({
       name,
@@ -121,6 +145,8 @@ export const createUploadTicket = async (
       id: assetId,
       projectId,
       name,
+      filename: displayFilename,
+      description,
       folderId,
     });
     if (assetInsert.error) {
@@ -140,7 +166,7 @@ export const createUploadTicket = async (
   throw new Error("Unable to reserve asset upload.");
 };
 
-export const uploadFile = async (
+export const uploadFileData = async (
   name: string,
   data: ReadableStream<Uint8Array>,
   client: AssetClient,
@@ -149,7 +175,7 @@ export const uploadFile = async (
     | { width: number; height: number; format: string }
     | undefined,
   onUploadError?: UploadErrorCleanup
-): Promise<Asset> => {
+): Promise<Database["public"]["Tables"]["File"]["Row"]> => {
   let file = await context.postgrest.client
     .from("File")
     .select("*")
@@ -187,7 +213,33 @@ export const uploadFile = async (
     if (file.data === null) {
       throw Error("File not found");
     }
-    const projectId = file.data.uploaderProjectId;
+    return file.data;
+  } catch (error) {
+    await cleanupUploadError(name, context, onUploadError);
+    throw error;
+  }
+};
+
+export const uploadFile = async (
+  name: string,
+  data: ReadableStream<Uint8Array>,
+  client: AssetClient,
+  context: AppContext,
+  assetInfoFallback:
+    | { width: number; height: number; format: string }
+    | undefined,
+  onUploadError?: UploadErrorCleanup
+): Promise<Asset> => {
+  const file = await uploadFileData(
+    name,
+    data,
+    client,
+    context,
+    assetInfoFallback,
+    onUploadError
+  );
+  try {
+    const projectId = file.uploaderProjectId;
     if (typeof projectId !== "string") {
       throw Error("File uploader project is missing");
     }
@@ -209,16 +261,10 @@ export const uploadFile = async (
       filename: asset.data.filename,
       description: asset.data.description,
       folderId: asset.data.folderId,
-      file: file.data,
+      file,
     });
   } catch (error) {
-    if (onUploadError) {
-      await onUploadError(name, context);
-    } else {
-      await context.postgrest.client.from("Asset").delete().eq("name", name);
-      await context.postgrest.client.from("File").delete().eq("name", name);
-    }
-
+    await cleanupUploadError(name, context, onUploadError);
     throw error;
   }
 };

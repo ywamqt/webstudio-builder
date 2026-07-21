@@ -30,8 +30,6 @@ import {
   getBrowserAssetFormat,
   imageDescriptionsSetInput,
   listAssets,
-  formatAssetName,
-  parseAssetName,
   parseAssetType,
   replaceAsset,
   replaceAssetInStyleValueMutable,
@@ -105,67 +103,6 @@ const state = {
   dataSources: new Map(),
 } satisfies BuilderState;
 
-describe("asset name helpers", () => {
-  test("parses name with hash and extension", () => {
-    expect(parseAssetName("hello_hash.ext")).toEqual({
-      basename: "hello",
-      hash: "hash",
-      ext: "ext",
-    });
-  });
-
-  test("parses name without hash", () => {
-    expect(parseAssetName("hello.ext")).toEqual({
-      basename: "hello",
-      hash: "",
-      ext: "ext",
-    });
-  });
-
-  test("parses name with multiple underscores", () => {
-    expect(parseAssetName("hello_hash1.ext_hash2")).toEqual({
-      basename: "hello",
-      hash: "hash1",
-      ext: "ext_hash2",
-    });
-  });
-
-  test("parses name with hash but no extension", () => {
-    expect(parseAssetName("hello_hash1_hash2")).toEqual({
-      basename: "hello_hash1",
-      hash: "hash2",
-      ext: "",
-    });
-  });
-
-  test("formats asset with filename", () => {
-    expect(
-      formatAssetName({
-        name: "uploaded_abc123.jpg",
-        filename: "myimage",
-      })
-    ).toBe("myimage.jpg");
-  });
-
-  test("formats asset without filename", () => {
-    expect(
-      formatAssetName({
-        name: "uploaded_abc123.jpg",
-        filename: undefined,
-      })
-    ).toBe("uploaded.jpg");
-  });
-
-  test("formats asset with no extension", () => {
-    expect(
-      formatAssetName({
-        name: "uploaded_abc123",
-        filename: "document",
-      })
-    ).toBe("document.");
-  });
-});
-
 describe("asset upload helpers", () => {
   test("preserves browser asset format detection", () => {
     expect(
@@ -180,6 +117,12 @@ describe("asset upload helpers", () => {
         name: "video.mp4",
       })
     ).toBe("mp4");
+    expect(
+      getBrowserAssetFormat({
+        contentType: "application/octet-stream",
+        name: ".mp4",
+      })
+    ).toBeUndefined();
     expect(() =>
       getBrowserAssetFormat({
         contentType: "script/javascript",
@@ -302,6 +245,26 @@ describe("asset runtime operations", () => {
       ],
       nextCursor: null,
     });
+  });
+
+  test("filters generic file assets", () => {
+    const file: Asset = {
+      id: "document",
+      projectId: "project",
+      name: "readme.md",
+      type: "file",
+      size: 12,
+      format: "md",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      meta: {},
+    };
+
+    expect(
+      listAssets(
+        { ...state, assets: new Map([[file.id, file]]) },
+        { type: "file" }
+      )
+    ).toMatchObject({ items: [{ id: "document", type: "file" }] });
   });
 
   test("gets the complete asset record", () => {

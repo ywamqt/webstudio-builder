@@ -10,7 +10,7 @@ import { Image } from "./image";
 import brokenImage from "~/shared/images/broken-image-placeholder.svg";
 import {
   formatAssetName,
-  parseAssetName,
+  getAssetDisplayNameParts,
 } from "@webstudio-is/project-build/runtime";
 import type { IconComponent } from "@webstudio-is/icons";
 import type { AllowedFileExtension } from "@webstudio-is/sdk";
@@ -18,6 +18,7 @@ import {
   FILE_EXTENSIONS_BY_CATEGORY,
   IMAGE_MIME_TYPES,
   detectAssetType,
+  isResizableImageFileName,
 } from "@webstudio-is/sdk";
 import type { MimeCategory } from "@webstudio-is/sdk";
 import { draggable } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
@@ -118,6 +119,7 @@ type AssetThumbnailProps = {
   assetContainer: AssetContainer;
   interactions: AssetManagerThumbnailInteractions;
   onChange?: (assetContainer: AssetContainer) => void;
+  onOpen?: () => void;
   selected?: boolean;
   forcedSelection?: boolean;
   folderPath?: string;
@@ -131,6 +133,7 @@ export const AssetThumbnail = ({
   assetContainer,
   interactions,
   onChange,
+  onOpen,
   selected,
   forcedSelection,
   folderPath,
@@ -147,7 +150,7 @@ export const AssetThumbnail = ({
   const { canDownloadAssets } = useStore($permissions);
   const { asset } = assetContainer;
   const getDragItems = interactions.getDragItems;
-  const { basename, ext } = parseAssetName(asset.name);
+  const { basename, ext } = getAssetDisplayNameParts(asset);
   const alt = asset.description ?? formatAssetName(asset);
   const isUploading = assetContainer.status === "uploading";
   const assetType = detectAssetType(asset.name);
@@ -172,6 +175,7 @@ export const AssetThumbnail = ({
     assetContainer.status === "uploading"
       ? {}
       : {
+          open: onOpen,
           settings: () => setSettingsOpen(true),
           ...(authPermit === "view"
             ? {}
@@ -241,7 +245,7 @@ export const AssetThumbnail = ({
         }}
         title={alt}
         preview={
-          assetType === "image" ? (
+          assetType === "image" && isResizableImageFileName(asset.name) ? (
             <StyledWebstudioImage
               assetId={asset.id}
               name={asset.name}
@@ -265,13 +269,18 @@ export const AssetThumbnail = ({
             <GenericFilePreview ext={ext} format={asset.format} />
           )
         }
-        label={asset.filename ?? basename}
-        labelSuffix={`.${ext}`}
+        label={basename}
+        labelSuffix={ext === "" ? undefined : `.${ext}`}
         path={folderPath}
         onPreviewClick={() => onChange?.(assetContainer)}
+        onDoubleClick={onOpen}
         onKeyDown={(event: KeyboardEvent) => {
-          if (event.code === "Enter") {
-            onChange?.(assetContainer);
+          if (event.key === "Enter") {
+            if (onOpen !== undefined) {
+              onOpen();
+            } else {
+              onChange?.(assetContainer);
+            }
           }
         }}
         header={
