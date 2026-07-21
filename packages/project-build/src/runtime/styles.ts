@@ -1,19 +1,8 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import deepEqual from "fast-deep-equal";
-import {
-  camelCaseProperty,
-  parseCss,
-  parseCssValue,
-  shorthandProperties,
-  validateSelector,
-} from "@webstudio-is/css-data";
-import {
-  hyphenateProperty,
-  styleValue,
-  toValue,
-  type StyleValue,
-} from "@webstudio-is/css-engine";
+import { camelCaseProperty, validateSelector } from "@webstudio-is/css-data";
+import { styleValue, toValue, type StyleValue } from "@webstudio-is/css-engine";
 import {
   getStyleDeclKey,
   ROOT_INSTANCE_ID,
@@ -36,9 +25,13 @@ import {
   type PaginatedOutputInput,
 } from "./output";
 import type { BuilderState } from "../state/builder-state";
-import { findSerializedPageByInput, getSerializedPages } from "./pages";
+import {
+  findSerializedPageByInput,
+  getHomePageRootInstanceId,
+  getSerializedPages,
+} from "./pages";
 import { getInstanceDepths } from "./instances";
-import { addZodValidationIssue, throwBuilderRuntimeError } from "./errors";
+import { throwBuilderRuntimeError } from "./errors";
 import { runtimeGeneratedIdInput } from "./generated-id-input";
 import { createRuntimeMutation } from "./mutation";
 import { serializeStyleDeclarations } from "./style-utils";
@@ -271,12 +264,19 @@ const withValidatedBreakpoint = <Input extends { breakpoint?: string }>(
 export const getCssVariableRootTarget = (
   state: Pick<
     BuilderState,
-    "breakpoints" | "styleSources" | "styleSourceSelections"
+    "breakpoints" | "pages" | "styleSources" | "styleSourceSelections"
   >,
   breakpoint?: string
 ) => {
+  const rootInstanceId =
+    state.pages === undefined
+      ? undefined
+      : getHomePageRootInstanceId(state.pages);
+  if (rootInstanceId === undefined) {
+    return throwBuilderRuntimeError("NOT_FOUND", "Home page not found");
+  }
   return {
-    rootInstanceId: ROOT_INSTANCE_ID,
+    rootInstanceId,
     breakpointId: withValidatedBreakpoint({ breakpoint }, state.breakpoints)
       .breakpoint,
     styleSourceId:
@@ -286,7 +286,7 @@ export const getCssVariableRootTarget = (
         : getLocalStyleSourceId({
             styleSources: state.styleSources,
             styleSourceSelection:
-              state.styleSourceSelections.get(ROOT_INSTANCE_ID),
+              state.styleSourceSelections.get(rootInstanceId),
           }),
   };
 };
@@ -301,32 +301,10 @@ const styleStateInput = z.string().superRefine((state, context) => {
   }
 });
 
-const styleValueExample = { type: "keyword", value: "red" } as const;
-const typedStyleValueInput = z
-  .object({ type: z.string() })
-  .passthrough()
-  .meta({
-    description: "Typed CSS StyleValue object.",
-    examples: [styleValueExample],
-  })
-  .superRefine((value, context) => {
-    if (styleValue.safeParse(value).success === false) {
-      addZodValidationIssue(context, {
-        code: "invalid_style_value",
-        path: [],
-        message: "Expected a typed CSS StyleValue object",
-        constraint: "typed_css_style_value",
-        example: styleValueExample,
-      });
-    }
-  })
-  .transform((value) => value as StyleValue)
-  .describe("Typed CSS StyleValue object.");
-
 export const styleUpdateInput = z.object({
   instanceId: z.string(),
   property: z.string(),
-  value: typedStyleValueInput,
+  value: z.unknown(),
   breakpoint: z.string().optional(),
   state: styleStateInput.optional(),
   listed: z.boolean().optional(),
@@ -1183,20 +1161,18 @@ export const serializeCssVariables = ({
   };
 };
 
-const designTokenStyleValueInput = z.union([z.string(), typedStyleValueInput]);
-
 export const designTokenStyleInput = z.object({
   property: z.string(),
-  value: designTokenStyleValueInput,
+  value: z.unknown(),
   breakpoint: z.string().optional(),
   state: styleStateInput.optional(),
 });
-type DesignTokenStyleInput = z.infer<typeof designTokenStyleInput>;
+type DesignTokenStyleInput = z.input<typeof designTokenStyleInput>;
 
 export const designTokenCreateInput = z.object({
   tokenId: runtimeGeneratedIdInput,
   name: z.string().min(1),
-  styles: z.record(z.string(), designTokenStyleValueInput).optional(),
+  styles: z.record(z.string(), z.unknown()).optional(),
   declarations: z.array(designTokenStyleInput).optional(),
 });
 
@@ -1333,26 +1309,14 @@ export const validateStyleSourceName = ({
 };
 
 export const createDesignTokenStyleInputs = (input: {
-  styles?: Record<string, z.infer<typeof designTokenStyleValueInput>>;
+  styles?: Record<string, unknown>;
   declarations?: DesignTokenStyleInput[];
-}): Array<Omit<DesignTokenStyleInput, "value"> & { value: StyleValue }> => [
+}): DesignTokenStyleInput[] => [
   ...Object.entries(input.styles ?? {}).map(([property, value]) => ({
     property,
-    value:
-      typeof value === "string"
-        ? parseCssValue(hyphenateProperty(property), value)
-        : styleValue.parse(value),
+    value,
   })),
-  ...(input.declarations ?? []).map((declaration) => ({
-    ...declaration,
-    value:
-      typeof declaration.value === "string"
-        ? parseCssValue(
-            hyphenateProperty(declaration.property),
-            declaration.value
-          )
-        : styleValue.parse(declaration.value),
-  })),
+  ...(input.declarations ?? []),
 ];
 
 export const getLocalStyleSourceId = ({
@@ -1848,7 +1812,7 @@ export const createStyleDecl = ({
     listed,
   });
 
-export const createStyleDeclsFromInput = ({
+export const createStyleDeclFromInput = ({
   styleSourceId,
   property,
   value,
@@ -1862,50 +1826,15 @@ export const createStyleDeclsFromInput = ({
   breakpoint?: string;
   state?: StyleDecl["state"];
   listed?: StyleDecl["listed"];
-}): StyleDecl[] => {
-  const createStyleDeclWithInput = (property: unknown, value: unknown) =>
-    createStyleDecl({
-      styleSourceId,
-      breakpointId: breakpoint,
-      property,
-      value,
-      state,
-      listed,
-    });
-  const normalizedProperty = normalizeStyleProperty(property);
-  const cssProperty = hyphenateProperty(String(normalizedProperty));
-  if (
-    shorthandProperties.includes(
-      cssProperty as (typeof shorthandProperties)[number]
-    ) === false
-  ) {
-    return [createStyleDeclWithInput(property, value)];
-  }
-
-  const parsedValue = styleValue.safeParse(value);
-  if (parsedValue.success === false) {
-    return [createStyleDeclWithInput(property, value)];
-  }
-  const parsed = parseCss(
-    `.styles{${cssProperty}:${toValue(parsedValue.data)}}`,
-    new Map()
-  );
-  if (
-    parsed.errors.length > 0 ||
-    parsed.styles.length === 0 ||
-    parsed.styles.some(({ value: parsedStyleValue }) =>
-      ["invalid", "guaranteedInvalid"].includes(parsedStyleValue.type)
-    )
-  ) {
-    return throwBuilderRuntimeError(
-      "BAD_REQUEST",
-      `Invalid value for shorthand CSS property "${cssProperty}"`
-    );
-  }
-  return parsed.styles.map((style) =>
-    createStyleDeclWithInput(style.property, style.value)
-  );
-};
+}): StyleDecl =>
+  createStyleDecl({
+    styleSourceId,
+    breakpointId: breakpoint,
+    state,
+    property,
+    value,
+    listed,
+  });
 
 export const getStyleDeclKeyFromInput = ({
   styleSourceId,
@@ -2665,19 +2594,18 @@ export const createDesignTokenCreatePayload = ({
       value: styleSource,
     });
     for (const declaration of createDesignTokenStyleInputs(token)) {
-      for (const style of createStyleDeclsFromInput({
+      const style = createStyleDeclFromInput({
         styleSourceId: tokenId,
         breakpoint: declaration.breakpoint,
         property: declaration.property,
         value: declaration.value,
         state: declaration.state,
-      })) {
-        stylePatches.push({
-          op: "add" as const,
-          path: [getStyleDeclKey(style)],
-          value: style,
-        });
-      }
+      });
+      stylePatches.push({
+        op: "add" as const,
+        path: [getStyleDeclKey(style)],
+        value: style,
+      });
     }
   }
 
@@ -2712,24 +2640,23 @@ export const createDesignTokenStyleUpdatePayload = ({
   const styleKeys = new Set(
     Array.from(styles, (styleDecl) => getStyleDeclKey(styleDecl))
   );
-  const patches = updates.flatMap((update) =>
-    createStyleDeclsFromInput({
+  const patches = updates.map((update) => {
+    const style = createStyleDeclFromInput({
       styleSourceId: designTokenId,
       breakpoint: update.breakpoint,
       property: update.property,
       value: update.value,
       state: update.state,
-    }).map((style) => {
-      const key = getStyleDeclKey(style);
-      const patch = {
-        op: styleKeys.has(key) ? ("replace" as const) : ("add" as const),
-        path: [key],
-        value: style,
-      };
-      styleKeys.add(key);
-      return patch;
-    })
-  );
+    });
+    const key = getStyleDeclKey(style);
+    const patch = {
+      op: styleKeys.has(key) ? ("replace" as const) : ("add" as const),
+      path: [key],
+      value: style,
+    };
+    styleKeys.add(key);
+    return patch;
+  });
 
   return {
     payload:
@@ -2927,21 +2854,20 @@ export const createStyleDeclarationUpdatePayload = ({
       continue;
     }
     payload.push(...result.payload);
-    for (const nextStyleDecl of createStyleDeclsFromInput({
+    const nextStyleDecl = createStyleDeclFromInput({
       styleSourceId: result.styleSourceId,
       breakpoint: update.breakpoint,
       property: update.property,
       value: update.value,
       state: update.state,
       listed: update.listed,
-    })) {
-      const key = getStyleDeclKey(nextStyleDecl);
-      stylePatches.set(key, {
-        op: existingStyleKeys.has(key) ? "replace" : "add",
-        path: [key],
-        value: nextStyleDecl,
-      });
-    }
+    });
+    const key = getStyleDeclKey(nextStyleDecl);
+    stylePatches.set(key, {
+      op: existingStyleKeys.has(key) ? "replace" : "add",
+      path: [key],
+      value: nextStyleDecl,
+    });
   }
 
   const patches = Array.from(stylePatches.values());
@@ -3087,24 +3013,23 @@ export const createSelectedStyleDeclarationUpdatePayload = ({
       ]);
     }
 
-    for (const styleDecl of createStyleDeclsFromInput({
+    const styleDecl = createStyleDeclFromInput({
       styleSourceId: update.styleSourceId,
       breakpoint: update.breakpoint,
       property: update.property,
       value: update.value,
       state: update.state,
       listed: update.listed,
-    })) {
-      const styleKey = getStyleDeclKey(styleDecl);
-      stylePatches.push({
-        op: existingStyleKeys.has(styleKey)
-          ? ("replace" as const)
-          : ("add" as const),
-        path: [styleKey],
-        value: styleDecl,
-      });
-      existingStyleKeys.add(styleKey);
-    }
+    });
+    const styleKey = getStyleDeclKey(styleDecl);
+    stylePatches.push({
+      op: existingStyleKeys.has(styleKey)
+        ? ("replace" as const)
+        : ("add" as const),
+      path: [styleKey],
+      value: styleDecl,
+    });
+    existingStyleKeys.add(styleKey);
   }
 
   if (styleSourcePatches.length > 0) {
@@ -3503,7 +3428,11 @@ export const listCssVariables = (
 export const defineCssVariables = (
   state: Pick<
     BuilderState,
-    "breakpoints" | "styles" | "styleSources" | "styleSourceSelections"
+    | "breakpoints"
+    | "pages"
+    | "styles"
+    | "styleSources"
+    | "styleSourceSelections"
   >,
   input: z.infer<typeof cssVariableDefineInput>,
   context: { createId: () => string }
@@ -3538,7 +3467,7 @@ export const defineCssVariables = (
   }
   return createRuntimeMutation({
     payload: resultPayload.payload,
-    result: { names: Object.keys(input.vars), scope: ROOT_INSTANCE_ID },
+    result: { names: Object.keys(input.vars) },
     invalidatesNamespaces: ["styles", "styleSources", "styleSourceSelections"],
   });
 };

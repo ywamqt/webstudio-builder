@@ -37,6 +37,10 @@ const presetStyle = {
 export const meta: WsComponentMeta = {
   deprecated: true,
   icon: BracesIcon,
+  contentModel: {
+    category: "instance",
+    children: [],
+  },
   presetStyle,
   initialProps: ["id", "class", "lang", "code"],
   props: {

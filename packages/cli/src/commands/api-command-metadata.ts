@@ -95,7 +95,7 @@ export const topLevelCliCommandMetadata = [
     command: "permissions",
     description:
       "Show API, role, publish, and domain capabilities for the configured share-link token",
-    examples: ["webstudio permissions", "webstudio permissions --json"],
+    examples: ["webstudio permissions --json"],
   },
   ...cliCommandGroupMetadata,
   {
@@ -225,7 +225,6 @@ const apiCommandOptionsByCommand: Partial<
   "find-asset-usage": apiCommand.assetUsageCommandOptions,
   "replace-asset": apiCommand.replaceAssetCommandOptions,
   "delete-asset": apiCommand.deleteAssetCommandOptions,
-  permissions: apiCommand.permissionsCommandOptions,
 };
 
 export const apiCommandMetadata = publicApiOperations.map((operation) => ({

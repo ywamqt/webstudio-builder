@@ -152,7 +152,6 @@ export const updateAssetContent = async (
     assetClient,
     context,
     undefined,
-    undefined,
     async (name, { postgrest }) => {
       const deletedFile = await postgrest.client
         .from("File")

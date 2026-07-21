@@ -228,8 +228,8 @@ export type Database = {
           lastTransactionId: string | null;
           marketplaceProduct: string;
           pages: string;
-          projectId: string;
           projectSettings: string;
+          projectId: string;
           props: string;
           publishStatus: Database["public"]["Enums"]["PublishStatus"];
           resources: string;
@@ -250,8 +250,8 @@ export type Database = {
           lastTransactionId?: string | null;
           marketplaceProduct?: string;
           pages: string;
-          projectId: string;
           projectSettings?: string;
+          projectId: string;
           props?: string;
           publishStatus?: Database["public"]["Enums"]["PublishStatus"];
           resources?: string;
@@ -272,8 +272,8 @@ export type Database = {
           lastTransactionId?: string | null;
           marketplaceProduct?: string;
           pages?: string;
-          projectId?: string;
           projectSettings?: string;
+          projectId?: string;
           props?: string;
           publishStatus?: Database["public"]["Enums"]["PublishStatus"];
           resources?: string;
@@ -428,7 +428,6 @@ export type Database = {
       };
       File: {
         Row: {
-          contentHash: string | null;
           createdAt: string;
           description: string | null;
           format: string;
@@ -441,7 +440,6 @@ export type Database = {
           uploaderProjectId: string | null;
         };
         Insert: {
-          contentHash?: string | null;
           createdAt?: string;
           description?: string | null;
           format: string;
@@ -454,7 +452,6 @@ export type Database = {
           uploaderProjectId?: string | null;
         };
         Update: {
-          contentHash?: string | null;
           createdAt?: string;
           description?: string | null;
           format?: string;
@@ -1237,15 +1234,6 @@ export type Database = {
       };
       restore_development_build: {
         Args: { from_build_id: string; project_id: string };
-        Returns: string;
-      };
-      swap_asset_file: {
-        Args: {
-          asset_id: string;
-          expected_name: string;
-          project_id: string;
-          replacement_name: string;
-        };
         Returns: string;
       };
     };

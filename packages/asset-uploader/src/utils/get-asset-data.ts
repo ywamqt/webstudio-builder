@@ -1,13 +1,7 @@
 import { z } from "zod";
 import { imageMeta as parseImageMeta } from "image-meta";
 import { type FontMeta, fontMeta } from "@webstudio-is/fonts";
-import {
-  type AssetType,
-  type ImageMeta,
-  imageMeta,
-  mergeAssetMeta,
-  validateFileName,
-} from "@webstudio-is/sdk";
+import { type ImageMeta, imageMeta, validateFileName } from "@webstudio-is/sdk";
 import { getFontData } from "./font-data";
 
 export type AssetData = {
@@ -21,37 +15,6 @@ export const assetData: z.ZodType<AssetData> = z.object({
   format: z.string(),
   meta: z.union([imageMeta, fontMeta, z.object({})]),
 });
-
-export const assetDataOverride = z.object({
-  format: z.string().optional(),
-  meta: z.record(z.string(), z.unknown()).optional(),
-});
-export type AssetDataOverride = z.infer<typeof assetDataOverride>;
-
-export const applyAssetDataOverride = (
-  detected: AssetData,
-  override?: AssetDataOverride
-): AssetData => {
-  const type: AssetType =
-    "family" in detected.meta
-      ? "font"
-      : "width" in detected.meta && "height" in detected.meta
-        ? "image"
-        : "file";
-  const meta = mergeAssetMeta(type, detected.meta, override?.meta ?? {});
-  if (meta === undefined) {
-    throw new Error("Asset metadata override is invalid");
-  }
-
-  return {
-    ...detected,
-    format:
-      "family" in detected.meta
-        ? detected.format
-        : (override?.format ?? detected.format),
-    meta,
-  };
-};
 
 type BaseAssetOptions = {
   size: number;

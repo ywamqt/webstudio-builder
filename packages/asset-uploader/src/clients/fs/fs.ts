@@ -11,14 +11,13 @@ export const createFsAssetObjectStore = (
   options: FsClientOptions
 ): AssetObjectStore => {
   return {
-    uploadFile: (name, type, data, _assetInfoFallback, assetDataOverride) =>
+    uploadFile: (name, type, data) =>
       uploadToFs({
         name,
         type,
         data,
         maxSize: options.maxUploadSize,
         fileDirectory: options.fileDirectory,
-        assetDataOverride,
       }),
     readFile: (name, range) =>
       readFromFs({ name, range, fileDirectory: options.fileDirectory }),

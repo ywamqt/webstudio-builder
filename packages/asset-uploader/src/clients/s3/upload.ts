@@ -1,16 +1,9 @@
 import { arrayBuffer } from "node:stream/consumers";
 import type { SignatureV4 } from "@smithy/signature-v4";
-import {
-  applyAssetDataOverride,
-  type AssetData,
-  type AssetDataOverride,
-  getAssetData,
-} from "../../utils/get-asset-data";
+import { type AssetData, getAssetData } from "../../utils/get-asset-data";
 import { createSizeLimiter } from "../../utils/size-limiter";
+import { extendedEncodeURIComponent } from "../../utils/sanitize-s3-key";
 import { getMimeTypeByFilename } from "@webstudio-is/sdk";
-import { createS3ObjectUrl } from "./object-url";
-import { createS3FetchHeaders, signS3Request } from "./request-headers";
-import type { AssetInfoFallback } from "../../client";
 
 export const uploadToS3 = async ({
   signer,
@@ -22,7 +15,6 @@ export const uploadToS3 = async ({
   bucket,
   acl,
   assetInfoFallback,
-  assetDataOverride,
 }: {
   signer: SignatureV4;
   name: string;
@@ -32,8 +24,9 @@ export const uploadToS3 = async ({
   endpoint: string;
   bucket: string;
   acl?: string;
-  assetInfoFallback: AssetInfoFallback | undefined;
-  assetDataOverride?: AssetDataOverride;
+  assetInfoFallback:
+    | { width: number; height: number; format: string }
+    | undefined;
 }): Promise<AssetData> => {
   const limitSize = createSizeLimiter(maxSize, name);
 
@@ -43,43 +36,21 @@ export const uploadToS3 = async ({
   // Also check if S3 client has an option to check the size limit
   const data = await arrayBuffer(limitSize(dataStream));
 
-  const url = createS3ObjectUrl({
-    endpoint,
-    bucket,
-    key: name,
-  });
+  const url = new URL(
+    `/${bucket}/${extendedEncodeURIComponent(name)}`,
+    endpoint
+  );
 
   // Use proper MIME type based on file extension instead of generic type category
   const contentType = getMimeTypeByFilename(name);
 
-  const assetData = applyAssetDataOverride(
-    type.startsWith("video") && assetInfoFallback !== undefined
-      ? {
-          size: data.byteLength,
-          format: assetInfoFallback.format,
-          meta: {
-            width: assetInfoFallback.width,
-            height: assetInfoFallback.height,
-          },
-        }
-      : await getAssetData({
-          type: type.startsWith("image")
-            ? "image"
-            : type === "font"
-              ? "font"
-              : "file",
-          size: data.byteLength,
-          data: new Uint8Array(data),
-          name,
-        }),
-    assetDataOverride
-  );
-
-  const s3Request = await signS3Request({
-    signer,
-    url,
+  const s3Request = await signer.sign({
     method: "PUT",
+    protocol: url.protocol,
+    hostname: url.hostname,
+    path: url.pathname,
     headers: {
+      "x-amz-date": new Date().toISOString(),
       "Content-Type": contentType,
       "Content-Length": `${data.byteLength}`,
       "Cache-Control": "public, max-age=31536004,immutable",
@@ -94,13 +65,35 @@ export const uploadToS3 = async ({
 
   const response = await fetch(url, {
     method: s3Request.method,
-    headers: createS3FetchHeaders(s3Request.headers),
+    headers: s3Request.headers,
     body: data,
   });
 
   if (response.status !== 200) {
     throw Error(`Cannot upload file ${name}`);
   }
+
+  if (type.startsWith("video") && assetInfoFallback !== undefined) {
+    return {
+      size: data.byteLength,
+      format: assetInfoFallback?.format,
+      meta: {
+        width: assetInfoFallback?.width ?? 0,
+        height: assetInfoFallback?.height ?? 0,
+      },
+    };
+  }
+
+  const assetData = await getAssetData({
+    type: type.startsWith("image")
+      ? "image"
+      : type === "font"
+        ? "font"
+        : "file",
+    size: data.byteLength,
+    data: new Uint8Array(data),
+    name,
+  });
 
   return assetData;
 };

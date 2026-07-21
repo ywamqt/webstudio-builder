@@ -38,8 +38,7 @@ export const createS3AssetObjectStore = (
     name,
     type,
     data,
-    assetInfoFallback,
-    assetDataOverride
+    assetInfoFallback
   ) => {
     return uploadToS3({
       signer,
@@ -51,7 +50,6 @@ export const createS3AssetObjectStore = (
       bucket: options.bucket,
       acl: options.acl,
       assetInfoFallback,
-      assetDataOverride,
     });
   };
 
