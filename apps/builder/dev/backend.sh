@@ -126,7 +126,7 @@ builder_backend_bootstrap() {
         echo "Bootstrapped database from cached schema $SCHEMA_SNAPSHOT"
       else
         echo "No cached schema found at $SCHEMA_SNAPSHOT; running migrations"
-        #builder_backend_migrate
+        builder_backend_migrate
         builder_backend_write_schema_snapshot
       fi
       ;;
