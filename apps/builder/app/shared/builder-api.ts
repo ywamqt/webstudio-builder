@@ -3,7 +3,6 @@ import invariant from "tiny-invariant";
 import { toast } from "@webstudio-is/design-system";
 import { uploadAssets } from "~/builder/shared/assets/upload-assets";
 import { showTokenConflictDialog } from "./token-conflict-dialog";
-import { showRootStyleConflictDialog } from "./root-style-conflict-dialog";
 import { showDesignTokenImportDialog } from "./design-token-import-dialog";
 
 const apiWindowNamespace = "__webstudio__$__builderApi";
@@ -36,7 +35,6 @@ const _builderApi = {
   },
   showDesignTokenImportDialog,
   showTokenConflictDialog,
-  showRootStyleConflictDialog,
 };
 
 declare global {

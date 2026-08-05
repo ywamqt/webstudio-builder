@@ -1,7 +1,5 @@
-import type { ReactNode } from "react";
 import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { TooltipProvider } from "@webstudio-is/design-system";
 import { $assetFolders } from "~/shared/sync/data-stores";
 import {
   AssetFolderSettingsDialog,
@@ -15,8 +13,6 @@ import {
 import { createAssetManagerTestRenderer } from "./test-utils";
 
 const renderer = createAssetManagerTestRenderer();
-const render = (children: ReactNode) =>
-  renderer.render(<TooltipProvider>{children}</TooltipProvider>);
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -48,7 +44,7 @@ test("Escape closes folder settings without closing the assets panel", () => {
   const onPanelClose = vi.fn();
   const onSettingsOpenChange = vi.fn();
 
-  render(
+  renderer.render(
     <div
       onKeyDown={(event) => {
         if (event.key === "Escape") {
@@ -86,7 +82,7 @@ test.each([
     });
     $assetFolders.set(createAssetFoldersFixture(folder));
 
-    render(
+    renderer.render(
       <AssetFolderSettingsDialog
         folder={folder}
         open
@@ -99,32 +95,8 @@ test.each([
   }
 );
 
-test("shows the folder name and ID in settings", () => {
-  const folder = createAssetFolderFixture({
-    id: "folder-id",
-    name: "Documents",
-  });
-  $assetFolders.set(createAssetFoldersFixture(folder));
-
-  render(
-    <AssetFolderSettingsDialog folder={folder} open onOpenChange={vi.fn()} />
-  );
-
-  expect(
-    document.querySelector('label[for="asset-folder-name-folder-id"]')
-      ?.textContent
-  ).toBe("Name");
-  expect(
-    document.querySelector<HTMLInputElement>("#asset-folder-id-folder-id")
-      ?.value
-  ).toBe(folder.id);
-  expect(
-    document.querySelector('[aria-label="Copy folder ID"]')
-  ).toBeInstanceOf(HTMLButtonElement);
-});
-
 test("focuses the folder name while the rightmost Create action is disabled", () => {
-  render(
+  renderer.render(
     <CreateAssetFolderDialog
       open
       onOpenChange={vi.fn()}
@@ -151,7 +123,7 @@ test("moves items to the selected folder from the folder-only dialog", () => {
   const onMove = vi.fn();
   const onClose = vi.fn();
 
-  render(
+  renderer.render(
     <MoveAssetManagerItemsDialog
       initialFolderId={destination.id}
       canMove={() => true}

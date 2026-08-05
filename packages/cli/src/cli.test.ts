@@ -127,11 +127,6 @@ describe("registerCommands", () => {
       "single-op-call",
       "meta.index",
     ]);
-    expect(getTopLevelMcpToolForwardArgs(["meta.get_more_tools"])).toEqual([
-      "mcp",
-      "single-op-call",
-      "meta.get_more_tools",
-    ]);
     expect(
       getTopLevelMcpToolForwardArgs([
         "insert-fragment",
@@ -173,7 +168,6 @@ describe("registerCommands", () => {
     for (const command of [
       "get-marketplace-product",
       "update-marketplace-product",
-      "submit-marketplace-product",
       "set-redirects",
     ]) {
       expect(
@@ -186,7 +180,6 @@ describe("registerCommands", () => {
   test.each([
     "get-marketplace-product",
     "update-marketplace-product",
-    "submit-marketplace-product",
     "set-redirects",
   ])("shows registered top-level help for %s", async (command) => {
     const output = await getHelpOutput([command, "--help"]);
@@ -241,12 +234,9 @@ describe("registerCommands", () => {
     expect(output).toContain("webstudio insert-fragment");
     expect(output).toContain("webstudio mcp single-op-call meta.index");
     expect(output).toContain(
-      "webstudio mcp single-op-call meta.get-more-tools"
+      "webstudio mcp single-op-call meta.get_more_tools"
     );
-    expect(output).toContain(
-      "webstudio insert-fragment --input-file .temp/insert-fragment.json --dry-run"
-    );
-    expect(output).not.toContain("<$.Box");
+    expect(output).toContain("insert-fragment");
     expect(output).toContain("node packages/cli/local.js");
   });
 

@@ -16,7 +16,6 @@ import {
   Grid,
   InputField,
   Label,
-  SmallIconButton,
   Text,
   theme,
 } from "@webstudio-is/design-system";
@@ -24,10 +23,9 @@ import {
   createAssetFolderHierarchy,
   type AssetFolder,
 } from "@webstudio-is/sdk";
-import { CopyIcon, TrashIcon } from "@webstudio-is/icons";
+import { TrashIcon } from "@webstudio-is/icons";
 import { $assetFolders } from "~/shared/sync/data-stores";
 import { executeRuntimeMutation } from "~/shared/instance-utils/data";
-import { CopyToClipboard } from "~/shared/copy-to-clipboard";
 import { AssetFolderSelector } from "./asset-folder-selector";
 
 type AssetFolderFormValues = {
@@ -56,7 +54,6 @@ const AssetFolderForm = ({
   initialName,
   initialParentId,
   excludedFolderId,
-  folderId,
   autoFocusSubmit = false,
   submitLabel,
   secondaryAction,
@@ -67,7 +64,6 @@ const AssetFolderForm = ({
   initialName: string;
   initialParentId: string | undefined;
   excludedFolderId?: string;
-  folderId?: string;
   autoFocusSubmit?: boolean;
   submitLabel: string;
   secondaryAction?: ReactNode;
@@ -110,7 +106,7 @@ const AssetFolderForm = ({
   return (
     <Grid gap={3} css={{ padding: theme.panel.padding }}>
       <Grid gap={1}>
-        <Label htmlFor={id}>Name</Label>
+        <Label htmlFor={id}>Folder</Label>
         <InputField
           id={id}
           autoFocus={autoFocusSubmit === false}
@@ -135,26 +131,6 @@ const AssetFolderForm = ({
         excludedFolderIds={excludedFolderIds}
         rootLabel="Parent folder"
       />
-      {folderId !== undefined && (
-        <Grid gap={1}>
-          <Label htmlFor={`asset-folder-id-${folderId}`}>ID</Label>
-          <InputField
-            id={`asset-folder-id-${folderId}`}
-            readOnly
-            value={folderId}
-            suffix={
-              <Flex justify="center" css={{ paddingInline: theme.spacing[2] }}>
-                <CopyToClipboard text={folderId}>
-                  <SmallIconButton
-                    aria-label="Copy folder ID"
-                    icon={<CopyIcon />}
-                  />
-                </CopyToClipboard>
-              </Flex>
-            }
-          />
-        </Grid>
-      )}
       <Flex justify="end" gap={2}>
         {secondaryAction}
         <Button
@@ -284,7 +260,6 @@ export const AssetFolderSettingsDialog = ({
             initialName={folder.name}
             initialParentId={folder.parentId}
             excludedFolderId={folder.id}
-            folderId={folder.id}
             autoFocusSubmit
             submitLabel="Save"
             onSubmit={save}

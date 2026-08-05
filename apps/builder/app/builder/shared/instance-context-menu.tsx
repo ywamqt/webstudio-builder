@@ -7,16 +7,13 @@ import {
   ContextMenuItem,
   ContextMenuItemRightSlot,
   ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
   theme,
   Kbd,
   Box,
 } from "@webstudio-is/design-system";
 import { showAttribute } from "@webstudio-is/react-sdk";
-import { emitCommand, instanceMoveCommandMetas } from "./commands";
+import { emitCommand } from "./commands";
 import {
   $allSelectedInstanceSelectors,
   $selectedInstancePath,
@@ -93,7 +90,6 @@ const getMenuPermissions = ({
       canPaste: hasActionableSelection,
       canCut: false,
       canDuplicate: false,
-      canMove: false,
       canHide: false,
       canRename: false,
       canWrap: false,
@@ -114,8 +110,6 @@ const getMenuPermissions = ({
     canPaste: canMutateDesign && !isRoot,
     canCut: canMutateDesign && hasActionableSelection,
     canDuplicate: canMutateDesign && hasActionableSelection,
-    canMove:
-      canMutateDesign && hasActionableSelection && canUseSingleSelectionActions,
     canHide: canMutateDesign && !isRoot && canUseSingleSelectionActions,
     canRename: canMutateDesign && !isRoot && canUseSingleSelectionActions,
     canWrap: canMutateDesign && !isRootOrBody && canUseSingleSelectionActions,
@@ -216,30 +210,6 @@ export const MenuItems = () => {
           />
         </ContextMenuItemRightSlot>
       </ContextMenuItem>
-      <ContextMenuSub>
-        <ContextMenuSubTrigger disabled={!permissions.canMove}>
-          Move
-        </ContextMenuSubTrigger>
-        <ContextMenuSubContent>
-          {instanceMoveCommandMetas.map(({ name, label, shortcut }) => (
-            <ContextMenuItem
-              key={name}
-              disabled={!permissions.canMove}
-              onSelect={() => {
-                emitCommand(name);
-              }}
-            >
-              {label}
-              <ContextMenuItemRightSlot>
-                <Kbd
-                  value={["meta", shortcut]}
-                  color={shortcutColor(permissions.canMove)}
-                />
-              </ContextMenuItemRightSlot>
-            </ContextMenuItem>
-          ))}
-        </ContextMenuSubContent>
-      </ContextMenuSub>
       <ContextMenuSeparator />
       <ContextMenuItem
         disabled={!permissions.canHide}

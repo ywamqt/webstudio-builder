@@ -41,7 +41,6 @@ import {
   createResourceValue,
   createResourceValueFromFormData,
   decodeDataVariableName,
-  deleteResource,
   deleteVariableMutable,
   deleteUnusedDataVariables,
   encodeDataVariableName,
@@ -313,31 +312,28 @@ test("creates data variable values from form input values", () => {
   ).toEqual({ type: "json", value: null });
   expect(
     createDataVariableValueFromInput({
-      type: "json",
+      type: "string[]",
       value: '["Draft", "Connected", "Published"]',
     })
   ).toEqual({
-    type: "json",
+    type: "string[]",
     value: ["Draft", "Connected", "Published"],
   });
-  expect(
+  expect(() =>
     createDataVariableValueFromInput({
-      type: "json",
+      type: "string[]",
       value: '["Draft", 1]',
     })
-  ).toEqual({ type: "json", value: ["Draft", 1] });
-  expect(
+  ).toThrow();
+  expect(() =>
     createDataVariableValueFromInput({
-      type: "json",
-      value: "{ enabled: true }",
+      type: "string[]",
+      value: "",
     })
-  ).toEqual({ type: "json", value: { enabled: true } });
+  ).toThrow();
   expect(
-    createDataVariableValueFromInput({
-      type: "json",
-      value: 'globalThis["not-json"]',
-    })
-  ).toEqual({ type: "json", value: null });
+    createDataVariableValueFromInput({ type: "string[]", value: null })
+  ).toEqual({ type: "string[]", value: [] });
 });
 
 test("validates data variable number values", () => {
@@ -521,13 +517,13 @@ test("update data variable payload validates renamed variables", () => {
   });
 });
 
-test("update data variable payload preserves json array values", () => {
+test("update data variable payload preserves string array values", () => {
   const variable: DataSource = {
     id: "variable-1",
     scopeInstanceId: "instance-1",
     name: "stages",
     type: "variable",
-    value: { type: "json", value: ["Draft"] },
+    value: { type: "string[]", value: ["Draft"] },
   };
 
   expect(
@@ -535,7 +531,7 @@ test("update data variable payload preserves json array values", () => {
       variable,
       values: {
         value: {
-          type: "json",
+          type: "string[]",
           value: ["Draft", "Connected", "Published"],
         },
       },
@@ -550,7 +546,7 @@ test("update data variable payload preserves json array values", () => {
             op: "replace",
             path: ["variable-1", "value"],
             value: {
-              type: "json",
+              type: "string[]",
               value: ["Draft", "Connected", "Published"],
             },
           },
@@ -857,12 +853,6 @@ test("replace data source ids in expression", () => {
       new Map([["oldId", "newId"]])
     )
   ).toEqual("$ws$dataSource$newId = state");
-  expect(
-    replaceDataSourcesInExpression(
-      "https://example.com/cards.json",
-      new Map([["oldId", "newId"]])
-    )
-  ).toEqual("https://example.com/cards.json");
 });
 
 test("compute expression with decoded ids", () => {
@@ -2119,18 +2109,6 @@ describe("createResourceValue", () => {
     });
   });
 
-  test("accepts root-relative resource urls", () => {
-    expect(
-      resourceFieldsInput.parse({
-        name: "Session",
-        method: "get",
-        url: "/api/auth/session",
-        searchParams: [],
-        headers: [],
-      })
-    ).toMatchObject({ url: '"/api/auth/session"' });
-  });
-
   test("creates resource values through the sdk schema", () => {
     expect(
       createResourceValue({
@@ -2995,26 +2973,26 @@ describe("resource patch helpers", () => {
     ).toEqual({ resourceId: "resource-id", dataSourceId: "resource-id" });
   });
 
-  test("upserts a prop resource without exposing it as render-time data", () => {
+  test("upserts resource and binds instance prop atomically", () => {
     const body: Instance = {
       type: "instance",
       id: "body",
       component: "Body",
       children: [{ type: "id", value: "box" }],
     };
-    const form: Instance = {
+    const box: Instance = {
       type: "instance",
-      id: "form",
-      component: "Form",
+      id: "box",
+      component: "Box",
       children: [],
     };
-    const ids = ["resource-id", "prop-id"];
+    const ids = ["resource-id", "prop-id", "data-source-id"];
     const result = upsertResourceProp(
       {
         pages: createDefaultPages({ rootInstanceId: "body" }),
         instances: new Map([
           [body.id, body],
-          [form.id, form],
+          [box.id, box],
         ]),
         props: new Map(),
         dataSources: new Map(),
@@ -3025,12 +3003,12 @@ describe("resource patch helpers", () => {
         styles: new Map(),
       },
       {
-        instanceId: "form",
-        propName: "action",
+        instanceId: "box",
+        propName: "data",
         resource: resourceFieldsInput.parse({
-          name: "Submit",
-          method: "post",
-          url: "https://example.com/submit",
+          name: "Users",
+          method: "get",
+          url: "https://example.com/users",
           headers: [],
         }),
       },
@@ -3039,12 +3017,9 @@ describe("resource patch helpers", () => {
 
     expect(result.result).toEqual({
       resourceId: "resource-id",
-      dataSourceId: undefined,
+      dataSourceId: "data-source-id",
       propIds: ["prop-id"],
     });
-    expect(result.payload).not.toContainEqual(
-      expect.objectContaining({ namespace: "dataSources" })
-    );
     expect(result.payload).toContainEqual({
       namespace: "props",
       patches: [
@@ -3053,8 +3028,8 @@ describe("resource patch helpers", () => {
           path: ["prop-id"],
           value: {
             id: "prop-id",
-            instanceId: "form",
-            name: "action",
+            instanceId: "box",
+            name: "data",
             type: "resource",
             value: "resource-id",
             required: undefined,
@@ -3070,10 +3045,10 @@ describe("resource patch helpers", () => {
           path: ["resource-id"],
           value: {
             id: "resource-id",
-            name: "Submit",
+            name: "Users",
             control: undefined,
-            method: "post",
-            url: '"https://example.com/submit"',
+            method: "get",
+            url: '"https://example.com/users"',
             searchParams: undefined,
             headers: [],
             body: undefined,
@@ -3472,35 +3447,6 @@ describe("resource patch helpers", () => {
       propIds: ["prop"],
       isUsed: false,
     });
-  });
-
-  test("rejects deleting resources whose data source is referenced by expressions", () => {
-    const state = createResourceState();
-    state.instances.set("body", {
-      type: "instance",
-      id: "body",
-      component: "Body",
-      children: [
-        {
-          type: "expression",
-          value: `${encodeDataVariableId("data-source")}.data`,
-        },
-      ],
-    });
-    state.resources.set(resource.id, resource);
-    state.dataSources.set("data-source", {
-      id: "data-source",
-      scopeInstanceId: "body",
-      name: "Users",
-      type: "resource",
-      resourceId: resource.id,
-    });
-
-    expect(() =>
-      deleteResource(state, { resourceId: resource.id, force: true })
-    ).toThrow(
-      'Resource data is referenced by expressions through "data-source"'
-    );
   });
 });
 

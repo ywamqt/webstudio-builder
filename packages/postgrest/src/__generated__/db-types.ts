@@ -7,6 +7,31 @@ export type Json =
   | Json[];
 
 export type Database = {
+  graphql_public: {
+    Tables: {
+      [_ in never]: never;
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json;
+          operationName?: string;
+          query?: string;
+          variables?: Json;
+        };
+        Returns: Json;
+      };
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
+    };
+  };
   public: {
     Tables: {
       _prisma_migrations: {
@@ -81,41 +106,6 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "File";
             referencedColumns: ["name"];
-          },
-        ];
-      };
-      AssetFileMetadata: {
-        Row: {
-          assetId: string;
-          createdAt: string;
-          document: Json;
-          projectId: string;
-          revision: string;
-          updatedAt: string;
-        };
-        Insert: {
-          assetId: string;
-          createdAt?: string;
-          document: Json;
-          projectId: string;
-          revision: string;
-          updatedAt?: string;
-        };
-        Update: {
-          assetId?: string;
-          createdAt?: string;
-          document?: Json;
-          projectId?: string;
-          revision?: string;
-          updatedAt?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "AssetFileMetadata_assetId_projectId_fkey";
-            columns: ["assetId", "projectId"];
-            isOneToOne: false;
-            referencedRelation: "Asset";
-            referencedColumns: ["id", "projectId"];
           },
         ];
       };
@@ -228,8 +218,8 @@ export type Database = {
           lastTransactionId: string | null;
           marketplaceProduct: string;
           pages: string;
-          projectId: string;
           projectSettings: string;
+          projectId: string;
           props: string;
           publishStatus: Database["public"]["Enums"]["PublishStatus"];
           resources: string;
@@ -250,8 +240,8 @@ export type Database = {
           lastTransactionId?: string | null;
           marketplaceProduct?: string;
           pages: string;
-          projectId: string;
           projectSettings?: string;
+          projectId: string;
           props?: string;
           publishStatus?: Database["public"]["Enums"]["PublishStatus"];
           resources?: string;
@@ -272,8 +262,8 @@ export type Database = {
           lastTransactionId?: string | null;
           marketplaceProduct?: string;
           pages?: string;
-          projectId?: string;
           projectSettings?: string;
+          projectId?: string;
           props?: string;
           publishStatus?: Database["public"]["Enums"]["PublishStatus"];
           resources?: string;
@@ -428,7 +418,6 @@ export type Database = {
       };
       File: {
         Row: {
-          contentHash: string | null;
           createdAt: string;
           description: string | null;
           format: string;
@@ -441,7 +430,6 @@ export type Database = {
           uploaderProjectId: string | null;
         };
         Insert: {
-          contentHash?: string | null;
           createdAt?: string;
           description?: string | null;
           format: string;
@@ -454,7 +442,6 @@ export type Database = {
           uploaderProjectId?: string | null;
         };
         Update: {
-          contentHash?: string | null;
           createdAt?: string;
           description?: string | null;
           format?: string;
@@ -1114,19 +1101,6 @@ export type Database = {
         Args: { from_date?: string; to_date?: string };
         Returns: undefined;
       };
-      delete_asset_file_metadata_if_matches: {
-        Args: {
-          p_asset_id: string;
-          p_document: Json;
-          p_project_id: string;
-          p_revision: string;
-        };
-        Returns: number;
-      };
-      delete_stale_asset_file_metadata: {
-        Args: { p_asset_ids: string[]; p_project_id: string };
-        Returns: number;
-      };
       domainsVirtual: {
         Args: { "": Database["public"]["Tables"]["Project"]["Row"] };
         Returns: {
@@ -1225,27 +1199,8 @@ export type Database = {
           isSetofReturn: true;
         };
       };
-      replace_asset_file_metadata: {
-        Args: {
-          p_asset_id: string;
-          p_document: Json;
-          p_project_id: string;
-          p_revision: string;
-          p_source: Json;
-        };
-        Returns: boolean;
-      };
       restore_development_build: {
         Args: { from_build_id: string; project_id: string };
-        Returns: string;
-      };
-      swap_asset_file: {
-        Args: {
-          asset_id: string;
-          expected_name: string;
-          project_id: string;
-          replacement_name: string;
-        };
         Returns: string;
       };
     };
@@ -1391,6 +1346,9 @@ export type CompositeTypes<
     : never;
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       AuthorizationRelation: [

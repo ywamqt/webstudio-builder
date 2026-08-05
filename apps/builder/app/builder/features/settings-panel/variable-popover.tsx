@@ -35,7 +35,6 @@ import {
   ProChip,
   ScrollArea,
   Select,
-  SplitView,
   Switch,
   Text,
   TextArea,
@@ -44,11 +43,9 @@ import {
 } from "@webstudio-is/design-system";
 import {
   type DataSource,
-  type ResourceRequest,
   SYSTEM_VARIABLE_ID,
   resourceRequest,
 } from "@webstudio-is/sdk";
-import { isAssetsResourceRequest } from "@webstudio-is/sdk/runtime";
 import {
   ExpressionEditor,
   formatValue,
@@ -75,10 +72,11 @@ import {
   createDataVariableValueFromInput,
   createResourceValueFromFormData,
   findUnsetVariableNames,
+  parseDataVariableJsonExpression,
   validateDataVariableJsonValue,
   validateDataVariableNumberValue,
+  validateDataVariableStringArrayValue,
 } from "@webstudio-is/project-build/runtime";
-import { parseJsonExpression } from "@webstudio-is/expression";
 import { validateDataVariableName } from "~/builder/shared/data-variable-utils";
 import {
   GraphqlResourceForm,
@@ -89,24 +87,11 @@ import {
 import { generateCurl } from "./curl";
 import {
   $hasPendingResources,
-  $resourceDiagnosticsCache,
   $resourcesCache,
   computeResourceRequest,
   getResourceKey,
   invalidateResource,
-  loadResourceDiagnostics,
 } from "~/shared/resources";
-import { Row } from "./shared";
-import type { AssetQueryPreviewDiagnostics } from "@webstudio-is/content-engine";
-import {
-  clearSettledDiagnosticsKey,
-  RequestInspector,
-} from "./request-inspector";
-import { ContentDatabaseDiagnostics } from "./content-database-diagnostics";
-import {
-  getRequestErrorDiagnostics,
-  RequestErrorDiagnostics,
-} from "./request-error-diagnostics";
 
 const NameField = ({
   variable,
@@ -194,6 +179,7 @@ type VariableType =
   | "string"
   | "number"
   | "boolean"
+  | "string[]"
   | "json"
   | "resource"
   | "graphql-resource"
@@ -229,6 +215,11 @@ const TypeField = ({
       description: "A boolean is a true/false switch.",
     },
     {
+      value: "string[]",
+      label: "String Array",
+      description: "A list of text values.",
+    },
+    {
       value: "json",
       label: "JSON",
       description: "Any JSON value",
@@ -259,11 +250,11 @@ const TypeField = ({
       value: "system-resource",
       label: (
         <Flex direction="row" gap="2" align="center">
-          System resource
+          System Resource
           {allowDynamicData === false && <ProChip>Pro</ProChip>}
         </Flex>
       ),
-      description: "A system resource is a configuration for Webstudio data.",
+      description: "A System Resource is a configuration for Webstudio data.",
     },
   ];
   const options = new Map(optionsList.map((option) => [option.value, option]));
@@ -291,7 +282,7 @@ const TypeField = ({
 };
 
 type PanelApi = {
-  save: (formData: FormData) => void | false;
+  save: (formData: FormData) => void;
 };
 
 const ParameterForm = forwardRef<
@@ -321,7 +312,7 @@ ParameterForm.displayName = "ParameterForm";
 
 type ValueVariableType = Extract<
   VariableType,
-  "string" | "number" | "boolean" | "json"
+  "string" | "number" | "boolean" | "string[]" | "json"
 >;
 
 const saveVariable = (
@@ -537,6 +528,51 @@ const JsonForm = forwardRef<
 });
 JsonForm.displayName = "JsonForm";
 
+const StringArrayForm = forwardRef<
+  undefined | PanelApi,
+  {
+    variable?: DataSource;
+    value: unknown;
+    onChange: (value: unknown) => void;
+  }
+>(({ variable, value: unknownValue, onChange }, ref) => {
+  const value = typeof unknownValue === "string" ? unknownValue : "[]";
+  const [valueError, setValueError] = useState("");
+  const valueRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    valueRef.current?.setCustomValidity(
+      validateDataVariableStringArrayValue(value)
+    );
+    setValueError("");
+  }, [value]);
+  useValuePanelRef({ ref, variable, type: "string[]" });
+  return (
+    <>
+      <input
+        ref={valueRef}
+        style={{ display: "none" }}
+        name="value"
+        data-color={valueError ? "error" : undefined}
+        value={value}
+        onChange={() => {}}
+        onInvalid={(event) =>
+          setValueError(event.currentTarget.validationMessage)
+        }
+      />
+      <Flex direction="column" css={{ gap: theme.spacing[3] }}>
+        <Label>Value</Label>
+        <ExpressionEditor
+          color={valueError ? "error" : undefined}
+          value={value}
+          onChange={onChange}
+          onChangeComplete={() => valueRef.current?.checkValidity()}
+        />
+      </Flex>
+    </>
+  );
+});
+StringArrayForm.displayName = "StringArrayForm";
+
 const VariablePanelForm = forwardRef<
   undefined | PanelApi,
   {
@@ -545,20 +581,10 @@ const VariablePanelForm = forwardRef<
     onVariableTypeChange: (variableType: VariableType) => void;
     value: unknown;
     onValueChange: (value: unknown) => void;
-    querySourceContainer: Element | null;
-    onQueryActiveChange: (active: boolean) => void;
   }
 >(
   (
-    {
-      variable,
-      variableType,
-      onVariableTypeChange,
-      value,
-      onValueChange,
-      querySourceContainer,
-      onQueryActiveChange,
-    },
+    { variable, variableType, onVariableTypeChange, value, onValueChange },
     ref
   ) => {
     const { allowDynamicData } = useStore($permissions);
@@ -589,63 +615,56 @@ const VariablePanelForm = forwardRef<
           direction="column"
           css={{
             overflow: "hidden",
-            paddingBlock: theme.panel.paddingBlock,
+            padding: theme.panel.padding,
             gap: theme.spacing[7],
           }}
         >
-          <Row>
-            <NameField
-              variable={variable}
-              defaultValue={variable?.name ?? ""}
-            />
-          </Row>
+          <NameField variable={variable} defaultValue={variable?.name ?? ""} />
           {variableType !== "parameter" && (
-            <Row>
-              <TypeField value={variableType} onChange={onVariableTypeChange} />
-            </Row>
+            <TypeField value={variableType} onChange={onVariableTypeChange} />
           )}
           {variableType === "parameter" && (
             <ParameterForm ref={ref} variable={variable} />
           )}
           {variableType === "string" && (
-            <Row>
-              <StringForm
-                ref={ref}
-                variable={variable}
-                value={value}
-                onChange={onValueChange}
-              />
-            </Row>
+            <StringForm
+              ref={ref}
+              variable={variable}
+              value={value}
+              onChange={onValueChange}
+            />
           )}
           {variableType === "number" && (
-            <Row>
-              <NumberForm
-                ref={ref}
-                variable={variable}
-                value={value}
-                onChange={onValueChange}
-              />
-            </Row>
+            <NumberForm
+              ref={ref}
+              variable={variable}
+              value={value}
+              onChange={onValueChange}
+            />
           )}
           {variableType === "boolean" && (
-            <Row>
-              <BooleanForm
-                ref={ref}
-                variable={variable}
-                value={value}
-                onChange={onValueChange}
-              />
-            </Row>
+            <BooleanForm
+              ref={ref}
+              variable={variable}
+              value={value}
+              onChange={onValueChange}
+            />
           )}
           {variableType === "json" && (
-            <Row>
-              <JsonForm
-                ref={ref}
-                variable={variable}
-                value={value}
-                onChange={onValueChange}
-              />
-            </Row>
+            <JsonForm
+              ref={ref}
+              variable={variable}
+              value={value}
+              onChange={onValueChange}
+            />
+          )}
+          {variableType === "string[]" && (
+            <StringArrayForm
+              ref={ref}
+              variable={variable}
+              value={value}
+              onChange={onValueChange}
+            />
           )}
           {variableType === "resource" && (
             <ResourceForm ref={ref} variable={variable} />
@@ -654,12 +673,7 @@ const VariablePanelForm = forwardRef<
             <GraphqlResourceForm ref={ref} variable={variable} />
           )}
           {variableType === "system-resource" && (
-            <SystemResourceForm
-              ref={ref}
-              variable={variable}
-              querySourceContainer={querySourceContainer}
-              onQueryActiveChange={onQueryActiveChange}
-            />
+            <SystemResourceForm ref={ref} variable={variable} />
           )}
         </Flex>
       </>
@@ -680,17 +694,12 @@ const VariablePreview = ({
   variableType,
   variableValue,
   onLoadData,
-  queryActive,
-  queryContainerRef,
 }: {
   variable?: DataSource;
   variableType: VariableType;
   variableValue: unknown;
   onLoadData: () => void;
-  queryActive: boolean;
-  queryContainerRef: (element: HTMLDivElement | null) => void;
 }) => {
-  const [pendingDiagnosticsKey, setPendingDiagnosticsKey] = useState<string>();
   const isResource =
     variableType === "resource" ||
     variableType === "graphql-resource" ||
@@ -699,16 +708,12 @@ const VariablePreview = ({
   const resources = useStore($resources);
   const variableValues = useStore($instanceVariableValues);
   const resourcesCache = useStore($resourcesCache);
-  const resourceDiagnosticsCache = useStore($resourceDiagnosticsCache);
   const resourceScope = useResourceScope({ variable });
   let computedValue: unknown;
-  let resourceDiagnostics: AssetQueryPreviewDiagnostics | undefined;
-  let computedResourceRequest: ResourceRequest | undefined;
-  let computedResourceKey: string | undefined;
   if (variableType === "string" || variableType === "boolean") {
     computedValue = variableValue;
   } else if (variableType === "json") {
-    computedValue = parseJsonExpression(String(variableValue));
+    computedValue = parseDataVariableJsonExpression(String(variableValue));
   } else if (variableType === "number") {
     computedValue = Number(variableValue);
     if (Number.isNaN(computedValue)) {
@@ -729,17 +734,12 @@ const VariablePreview = ({
       }
     }
     if (parsedResourceRequest) {
-      computedResourceRequest = parsedResourceRequest;
-      const resourceKey = getResourceKey(parsedResourceRequest);
-      computedResourceKey = resourceKey;
-      computedValue = resourcesCache.get(resourceKey);
-      resourceDiagnostics = resourceDiagnosticsCache.get(resourceKey);
+      computedValue = resourcesCache.get(getResourceKey(parsedResourceRequest));
     }
   }
   const extensions = useMemo(() => [javascript({}), foldGutterExtension], []);
   const editorProps = {
     readOnly: true,
-    chromeless: true,
     extensions,
     // compute value as json lazily only when dialog is open
     // by spliting into separate component which is invoked
@@ -748,7 +748,7 @@ const VariablePreview = ({
     onChange: () => {},
     onChangeComplete: () => {},
   };
-  const preview = (
+  return (
     <Grid
       align="stretch"
       css={{
@@ -756,7 +756,6 @@ const VariablePreview = ({
         overflow: "hidden",
         boxSizing: "content-box",
         position: "relative",
-        gridTemplateRows: "minmax(0, 1fr)",
       }}
     >
       <EditorContent {...editorProps} />
@@ -778,43 +777,6 @@ const VariablePreview = ({
       )}
     </Grid>
   );
-  if (isResource === false) {
-    return preview;
-  }
-  const requestErrorDiagnostics = getRequestErrorDiagnostics(computedValue);
-  return (
-    <RequestInspector
-      queryContainerRef={queryActive ? queryContainerRef : undefined}
-      preview={preview}
-      onDiagnosticsOpen={
-        computedResourceRequest !== undefined &&
-        isAssetsResourceRequest(computedResourceRequest) &&
-        resourceDiagnostics?.artifacts === undefined
-          ? () => {
-              const diagnosticsKey = getResourceKey(computedResourceRequest);
-              setPendingDiagnosticsKey(diagnosticsKey);
-              void loadResourceDiagnostics(computedResourceRequest).finally(
-                () =>
-                  setPendingDiagnosticsKey((pendingKey) =>
-                    clearSettledDiagnosticsKey(pendingKey, diagnosticsKey)
-                  )
-              );
-            }
-          : undefined
-      }
-      diagnosticsPending={
-        pendingDiagnosticsKey === computedResourceKey &&
-        resourceDiagnostics === undefined
-      }
-      diagnostics={
-        requestErrorDiagnostics !== undefined ? (
-          <RequestErrorDiagnostics value={requestErrorDiagnostics} />
-        ) : resourceDiagnostics !== undefined ? (
-          <ContentDatabaseDiagnostics value={resourceDiagnostics} />
-        ) : undefined
-      }
-    />
-  );
 };
 
 const VariablePopoverContent = ({
@@ -828,17 +790,13 @@ const VariablePopoverContent = ({
 }) => {
   const hasPendingResources = useStore($hasPendingResources);
   const panelRef = useRef<undefined | PanelApi>(undefined);
-  const [queryActive, setQueryActive] = useState(false);
-  const [querySourceContainer, setQuerySourceContainer] =
-    useState<HTMLDivElement | null>(null);
-  const queryContainerRef = useCallback(
-    (element: HTMLDivElement | null) => setQuerySourceContainer(element),
-    []
-  );
   const isSystemVariable = variable?.id === SYSTEM_VARIABLE_ID;
   const [value, setValue] = useState<unknown>(() => {
     if (variable?.type === "variable") {
-      if (variable.value.type === "json") {
+      if (
+        variable.value.type === "json" ||
+        variable.value.type === "string[]"
+      ) {
         return formatValue(variable.value.value);
       }
       return variable.value.value;
@@ -862,7 +820,12 @@ const VariablePopoverContent = ({
     }
     if (variable?.type === "variable") {
       const type = variable.value.type;
-      if (type === "string" || type === "number" || type === "boolean") {
+      if (
+        type === "string" ||
+        type === "number" ||
+        type === "boolean" ||
+        type === "string[]"
+      ) {
         return type;
       }
       return "json";
@@ -885,6 +848,9 @@ const VariablePopoverContent = ({
       if (variableType === "json") {
         // empty string gives an error
         return prev || "{}";
+      }
+      if (variableType === "string[]") {
+        return "[]";
       }
       return prev;
     });
@@ -921,76 +887,69 @@ const VariablePopoverContent = ({
 
   return (
     <>
-      <SplitView
-        defaultSize={{ value: 320, unit: "px" }}
-        minimumStartSize={240}
-        minimumEndSize={240}
-        separatorLabel="Resize variable configuration"
-        start={
-          <ScrollArea
-            // flex fixes content overflowing artificial scroll area
-            css={{ display: "flex", flexDirection: "column" }}
+      <Grid
+        css={{
+          height: "100%",
+          gridTemplateColumns: "320px 1fr",
+        }}
+      >
+        <ScrollArea
+          // flex fixes content overflowing artificial scroll area
+          css={{ display: "flex", flexDirection: "column" }}
+        >
+          <form
+            ref={formRef}
+            noValidate={true}
+            // exclude from the flow
+            style={{ display: "contents" }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (isSystemVariable) {
+                return;
+              }
+              const nameElement =
+                event.currentTarget.elements.namedItem("name");
+              // make sure only name is valid and allow to save everything else
+              // to avoid loosing complex configuration when closed accidentally
+              if (
+                nameElement instanceof HTMLInputElement &&
+                nameElement.checkValidity()
+              ) {
+                const formData = new FormData(event.currentTarget);
+                panelRef.current?.save(formData);
+                // close popover whenever new variable is created
+                // to prevent creating duplicated variable
+                if (variable === undefined) {
+                  onClose();
+                }
+              }
+            }}
           >
-            <form
-              ref={formRef}
-              noValidate={true}
-              // exclude from the flow
+            {/* submit is not triggered when press enter on input without submit button */}
+            <button hidden></button>
+            <fieldset
               style={{ display: "contents" }}
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (isSystemVariable) {
-                  return;
-                }
-                const nameElement =
-                  event.currentTarget.elements.namedItem("name");
-                // make sure only name is valid and allow to save everything else
-                // to avoid loosing complex configuration when closed accidentally
-                if (
-                  nameElement instanceof HTMLInputElement &&
-                  nameElement.checkValidity()
-                ) {
-                  const formData = new FormData(event.currentTarget);
-                  const saved = panelRef.current?.save(formData);
-                  // close popover whenever new variable is created
-                  // to prevent creating duplicated variable
-                  if (variable === undefined && saved !== false) {
-                    onClose();
-                  }
-                }
-              }}
+              // forbid editing system variable
+              disabled={isSystemVariable}
             >
-              {/* submit is not triggered when press enter on input without submit button */}
-              <button hidden></button>
-              <fieldset
-                style={{ display: "contents" }}
-                // forbid editing system variable
-                disabled={isSystemVariable}
-              >
-                <VariablePanelForm
-                  ref={panelRef}
-                  variable={variable}
-                  variableType={variableType}
-                  onVariableTypeChange={updateVariableType}
-                  value={value}
-                  onValueChange={setValue}
-                  querySourceContainer={querySourceContainer}
-                  onQueryActiveChange={setQueryActive}
-                />
-              </fieldset>
-            </form>
-          </ScrollArea>
-        }
-        end={
-          <VariablePreview
-            variable={variable}
-            variableType={variableType}
-            variableValue={value}
-            onLoadData={reloadData}
-            queryActive={queryActive}
-            queryContainerRef={queryContainerRef}
-          />
-        }
-      />
+              <VariablePanelForm
+                ref={panelRef}
+                variable={variable}
+                variableType={variableType}
+                onVariableTypeChange={updateVariableType}
+                value={value}
+                onValueChange={setValue}
+              />
+            </fieldset>
+          </form>
+        </ScrollArea>
+        <VariablePreview
+          variable={variable}
+          variableType={variableType}
+          variableValue={value}
+          onLoadData={reloadData}
+        />
+      </Grid>
 
       <DialogTitle
         maximizable
@@ -1069,7 +1028,6 @@ export const VariablePopoverTrigger = ({
   return (
     <FloatingPanel
       maximizable
-      resize="both"
       placement="center"
       width={740}
       height={480}

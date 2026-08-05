@@ -10,10 +10,7 @@ import {
   type BuilderRuntimeMutationOperationId,
   type BuilderRuntimeOperationResult,
 } from "@webstudio-is/project-build/runtime";
-import {
-  builderRuntimeContext,
-  type BuilderRuntimeContext,
-} from "@webstudio-is/project-build/runtime";
+import { builderRuntimeContext } from "@webstudio-is/project-build/runtime";
 import { type BuilderRuntimeMutation } from "@webstudio-is/project-build/runtime";
 import { $canOpenPageTemplates, $selectedPage } from "../nano-states";
 import { createTransactionFromBuilderPatchPayload } from "../sync/builder-patch";
@@ -63,11 +60,6 @@ const getRuntimeMutationContext = () => ({
   projectId: $project.get()?.id,
 });
 
-type RuntimeMutationContext = Pick<
-  BuilderRuntimeContext,
-  "allowLegacyContentModelWarnings"
->;
-
 const requireSynchronousResult = <Result>(
   id: BuilderRuntimeMutationOperationId,
   result: Result | Promise<Result>
@@ -83,16 +75,14 @@ const createRuntimeMutationArgs = <
 >({
   id,
   input,
-  context,
 }: {
   id: Id;
   input: BuilderRuntimeOperationInput<Id>;
-  context?: RuntimeMutationContext;
 }) => ({
   id,
   state: getWebstudioData(),
   input,
-  context: { ...getRuntimeMutationContext(), ...context },
+  context: getRuntimeMutationContext(),
 });
 
 const commitRuntimeMutation = <Mutation extends BuilderRuntimeMutation>(
@@ -110,11 +100,9 @@ export const executeRuntimeMutation = <
 >({
   id,
   input,
-  context,
 }: {
   id: Id;
   input: BuilderRuntimeOperationInput<Id>;
-  context?: RuntimeMutationContext;
 }): RuntimeMutationResult<Id> | undefined => {
   if (canCommitWebstudioData() === false) {
     return;
@@ -123,7 +111,7 @@ export const executeRuntimeMutation = <
     requireSynchronousResult(
       id,
       executeBuilderRuntimeOperation<RuntimeMutationResult<Id>>(
-        createRuntimeMutationArgs({ id, input, context })
+        createRuntimeMutationArgs({ id, input })
       )
     )
   );
@@ -157,18 +145,16 @@ export const executeRuntimeMutationAsync = async <
 >({
   id,
   input,
-  context,
 }: {
   id: Id;
   input: BuilderRuntimeOperationInput<Id>;
-  context?: RuntimeMutationContext;
 }): Promise<RuntimeMutationResult<Id> | undefined> => {
   if (canCommitWebstudioData() === false) {
     return;
   }
   const result = await executeBuilderRuntimeOperation<
     RuntimeMutationResult<Id>
-  >(createRuntimeMutationArgs({ id, input, context }));
+  >(createRuntimeMutationArgs({ id, input }));
   return commitRuntimeMutation(result);
 };
 

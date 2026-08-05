@@ -14,7 +14,6 @@ import {
 import { $pages, $project } from "~/shared/sync/data-stores";
 import { detectFragmentTokenConflicts } from "@webstudio-is/project-build/runtime";
 import { resolveTokenConflicts } from "../resolve-token-conflicts";
-import { resolveRootStyleConflicts } from "../resolve-root-style-conflicts";
 import {
   createFolderCopyData,
   createPageCopyData,
@@ -23,7 +22,6 @@ import {
 import {
   pageTransferDataVersion,
   parsePageTransferData,
-  collectPageTransferItems,
   type FolderTransferData,
   type PageTransferData,
   type PageTransferItem,
@@ -123,6 +121,15 @@ const handleCopyPage = () => {
   }
 };
 
+const collectPageLikeItems = (
+  item: PageTransferItem
+): Array<PageTransferData | TemplateTransferData> => {
+  if (item.type === "page" || item.type === "template") {
+    return [item];
+  }
+  return item.children.flatMap(collectPageLikeItems);
+};
+
 export const copyPageData = (pageId: Page["id"]) => {
   const data = getWebstudioData();
   const pageData = getPageCopyData(data, pageId);
@@ -179,8 +186,7 @@ export const handlePastePage = async (
     if (projectId === undefined) {
       return pasteHandled;
     }
-    const pageItems = collectPageTransferItems(item);
-    const conflicts = pageItems.flatMap((item) =>
+    const conflicts = collectPageLikeItems(item).flatMap((item) =>
       detectFragmentTokenConflicts({
         fragment: mergeWebstudioFragments(item.rootFragment, item.bodyFragment),
         targetData,
@@ -188,18 +194,6 @@ export const handlePastePage = async (
     );
     const conflictResolution = await resolveTokenConflicts(conflicts);
     if (conflictResolution === "cancel") {
-      return pasteHandled;
-    }
-    const rootStyleTargetData = getWebstudioData();
-    const firstPageLikeItem = pageItems[0];
-    const rootStyleConflictResolution =
-      firstPageLikeItem === undefined
-        ? undefined
-        : await resolveRootStyleConflicts({
-            fragment: firstPageLikeItem.rootFragment,
-            targetData: rootStyleTargetData,
-          });
-    if (rootStyleConflictResolution === "cancel") {
       return pasteHandled;
     }
 
@@ -210,7 +204,6 @@ export const handlePastePage = async (
         targetFolderId: folderId,
         projectId,
         conflictResolution,
-        rootStyleConflictResolution,
       },
     });
     if (result?.result.didReachBreakpointLimit) {

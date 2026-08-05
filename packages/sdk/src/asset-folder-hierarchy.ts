@@ -9,32 +9,28 @@ export const getAssetFolderSiblingKey = (
   name: string
 ) => JSON.stringify([parentId ?? null, normalizeAssetFolderName(name)]);
 
-type AssetFolderTraversal = { path: AssetFolder[]; cycleIds: string[] };
+type AssetFolderTraversal = { path: AssetFolder[]; hasCycle: boolean };
 
 const traverseAssetFolderAncestors = (
   folders: AssetFolders,
   folderId: string
 ): AssetFolderTraversal => {
-  const lineage: AssetFolder[] = [];
-  const positions = new Map<string, number>();
+  const path: AssetFolder[] = [];
+  const visited = new Set<string>();
   let currentId: string | undefined = folderId;
   while (currentId !== undefined) {
-    const position = positions.get(currentId);
-    if (position !== undefined) {
-      return {
-        path: lineage.toReversed(),
-        cycleIds: lineage.slice(position).map(({ id }) => id),
-      };
+    if (visited.has(currentId)) {
+      return { path, hasCycle: true };
     }
+    visited.add(currentId);
     const folder = folders.get(currentId);
     if (folder === undefined) {
       break;
     }
-    positions.set(currentId, lineage.length);
-    lineage.push(folder);
+    path.unshift(folder);
     currentId = folder.parentId;
   }
-  return { path: lineage.toReversed(), cycleIds: [] };
+  return { path, hasCycle: false };
 };
 
 export const createAssetFolderHierarchy = (folders: AssetFolders) => {
@@ -92,8 +88,7 @@ export const createAssetFolderHierarchy = (folders: AssetFolders) => {
     resolveFolderId,
     getPath: (folderId: string | undefined) =>
       folderId === undefined ? [] : getTraversal(folderId).path,
-    getCycleIds: (folderId: string) => getTraversal(folderId).cycleIds,
-    hasCycle: (folderId: string) => getTraversal(folderId).cycleIds.length > 0,
+    hasCycle: (folderId: string) => getTraversal(folderId).hasCycle,
     sortByDepth,
     getAggregateAssetSizes: (assets: Iterable<Asset>) => {
       const sizes = new Map<string, number>();

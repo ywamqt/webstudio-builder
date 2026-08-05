@@ -4,6 +4,8 @@ import {
   type BuilderNamespace,
 } from "./contracts/namespaces";
 import {
+  allowedArrayMethods,
+  allowedStringMethods,
   getInputJsonSchemaMetadata,
   getInputJsonSchemaProperties,
   inputJsonSchemaAcceptsType,
@@ -12,10 +14,6 @@ import {
   type InputJsonSchema,
   type InputJsonSchemaValue,
 } from "@webstudio-is/sdk";
-import {
-  allowedArrayMethods,
-  allowedStringMethods,
-} from "@webstudio-is/expression";
 import type { BuilderApiCapability } from "./contracts/permissions";
 import path from "node:path";
 import {
@@ -42,12 +40,6 @@ import {
   type ScreenshotWaitUntil,
 } from "./visual/screenshot-browser";
 import type { ScreenshotDiffResult } from "./visual/screenshot-diff";
-import {
-  projectPreviewModes,
-  projectPreviewSources,
-  type ProjectPreviewMode,
-  type ProjectPreviewSource,
-} from "./visual/preview";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -81,7 +73,6 @@ import {
 import { parseWebstudioJsxFragment } from "./runtime/jsx";
 import { webstudioJsxFragmentInputDescription } from "./runtime/jsx/bindings";
 import {
-  formatValidationErrorMessage,
   getValidationIssues,
   getZodValidationIssues,
   semanticValidationIssuesJsonSchema,
@@ -136,26 +127,6 @@ export type McpErrorCodeResolver = (error: unknown) => string | undefined;
 export type McpTransport = Transport;
 type McpLogLevel = "info" | "error";
 
-export const projectSessionPreviewSources = projectPreviewSources;
-export type ProjectSessionPreviewSource = ProjectPreviewSource;
-
-export const projectSessionPreviewModes = projectPreviewModes;
-export type ProjectSessionPreviewMode = ProjectPreviewMode;
-
-type ProjectSessionScreenshotNavigation = {
-  requestedUrl: string;
-  finalUrl: string;
-  status?: number;
-  statusText?: string;
-  mimeType?: string;
-  redirects: string[];
-  documentReadyState: string;
-  generatedSiteRootPresent: boolean;
-  projectId?: string;
-  projectVersion?: number;
-  layoutStable: boolean;
-};
-
 export type ProjectSessionScreenshotInput = {
   url?: string;
   baseUrl?: string;
@@ -164,8 +135,7 @@ export type ProjectSessionScreenshotInput = {
   host?: string;
   port?: number;
   imageDomains?: string[];
-  source?: ProjectSessionPreviewSource;
-  mode?: ProjectSessionPreviewMode;
+  source?: "local" | "session";
   viewport: {
     width: number;
     height: number;
@@ -196,14 +166,6 @@ export type ProjectSessionScreenshotResult = {
   fullPage: boolean;
   elapsedMs: number;
   warnings: readonly string[];
-  previewMode?: ProjectSessionPreviewMode;
-  renderedProjectId?: string;
-  renderedProjectVersion?: number;
-  lifecycleTimings?: {
-    previewRefreshMs: number;
-    captureMs: number;
-    totalMs: number;
-  };
   timings?: {
     wallMs: number;
     targetSetupMs: number;
@@ -215,9 +177,29 @@ export type ProjectSessionScreenshotResult = {
     artifactWriteMs: number;
     targetCleanupMs: number;
   };
-  navigation?: ProjectSessionScreenshotNavigation;
+  navigation?: {
+    requestedUrl: string;
+    finalUrl: string;
+    status?: number;
+    statusText?: string;
+    mimeType?: string;
+    redirects: string[];
+    documentReadyState: string;
+    generatedSiteRootPresent: boolean;
+    layoutStable: boolean;
+  };
   layout?: {
-    navigation?: ProjectSessionScreenshotNavigation;
+    navigation?: {
+      requestedUrl: string;
+      finalUrl: string;
+      status?: number;
+      statusText?: string;
+      mimeType?: string;
+      redirects: string[];
+      documentReadyState: string;
+      generatedSiteRootPresent: boolean;
+      layoutStable: boolean;
+    };
     documentType?: string;
     viewportWidth: number;
     viewportHeight: number;
@@ -301,16 +283,14 @@ type InstallOcr = () => Promise<ProjectSessionInstallOcrResult>;
 export type ProjectSessionPreviewInput = {
   host?: string;
   port?: number;
-  source?: ProjectSessionPreviewSource;
+  source?: "local" | "session";
   imageDomains?: string[];
-  mode?: ProjectSessionPreviewMode;
 };
 
 export type ProjectSessionPreviewResult = {
   url: string;
   pid?: number;
   running: boolean;
-  mode: ProjectSessionPreviewMode;
 };
 
 type StartPreview = (
@@ -361,16 +341,6 @@ const isScreenshotBrowser = (value: unknown): value is ScreenshotBrowser =>
   typeof value === "string" &&
   screenshotBrowserChoices.includes(value as ScreenshotBrowser);
 
-const isProjectSessionPreviewSource = (
-  value: unknown
-): value is ProjectSessionPreviewSource =>
-  projectSessionPreviewSources.some((source) => source === value);
-
-const isProjectSessionPreviewMode = (
-  value: unknown
-): value is ProjectSessionPreviewMode =>
-  projectSessionPreviewModes.some((mode) => mode === value);
-
 const getRequestParams = (request: unknown) =>
   isRecord(request) && isRecord(request.params) ? request.params : {};
 
@@ -382,7 +352,7 @@ type ProjectSessionMcpInputSchema = InputJsonSchema & {
 const emptyInputSchema = {
   type: "object",
   description:
-    "Pass this MCP tool's JSON arguments. Use meta.get-more-tools for examples and required fields. For authored content with styles, prefer insert-fragment so the CLI converts JSX into Webstudio data.",
+    "Pass this MCP tool's JSON arguments. Use meta.get_more_tools for examples and required fields. For authored content with styles, prefer insert-fragment so the CLI converts JSX into Webstudio data.",
   additionalProperties: false,
 } as const satisfies ProjectSessionMcpInputSchema;
 
@@ -579,21 +549,6 @@ const insertFragmentMcpInputSchema = {
   required: ["parentInstanceId", "fragment"],
 } as const satisfies ProjectSessionMcpInputSchema;
 
-const insertFragmentVerifiedMcpInputSchema = {
-  ...insertFragmentMcpInputSchema,
-  description:
-    "Insert a Webstudio fragment and immediately verify its persisted bindings in one call.",
-  properties: {
-    ...insertFragmentMcpInputSchema.properties,
-    pagePath: {
-      type: "string",
-      description:
-        "Concrete page path used for post-commit binding verification, for example /account.",
-    },
-  },
-  required: ["parentInstanceId", "fragment", "pagePath"],
-} as const satisfies ProjectSessionMcpInputSchema;
-
 const insertCollectionMcpInput = insertCollectionInput
   .omit({ itemFragment: true })
   .extend({
@@ -762,18 +717,17 @@ const getCompactSchemaProperty = (schema: InputJsonSchema): InputJsonSchema => {
   }
   return {
     description:
-      "Complex structured value. Use meta.get-more-tools with this exact tool name for its complete schema.",
+      "Complex structured value. Use meta.get_more_tools with this exact tool name for its complete schema.",
   };
 };
 
 const getHandshakeInputSchema = (
-  schema: ProjectSessionMcpInputSchema,
-  maxInlineSize = maxInlineMcpInputSchemaSize
+  schema: ProjectSessionMcpInputSchema
 ): {
   inputSchema: ProjectSessionMcpInputSchema;
   detailedInputSchema?: ProjectSessionMcpInputSchema;
 } => {
-  if (JSON.stringify(schema).length <= maxInlineSize) {
+  if (JSON.stringify(schema).length <= maxInlineMcpInputSchemaSize) {
     return { inputSchema: schema };
   }
   return {
@@ -787,7 +741,7 @@ const getHandshakeInputSchema = (
           return [
             name,
             propertySchema === undefined ||
-            (serializedProperty.length <= maxInlineSize &&
+            (serializedProperty.length <= maxInlineMcpInputSchemaSize &&
               serializedProperty.includes('"$ref"') === false)
               ? property
               : getCompactSchemaProperty(propertySchema),
@@ -796,7 +750,7 @@ const getHandshakeInputSchema = (
       ),
       required: schema.required,
       description:
-        "Compact handshake schema. Use meta.get-more-tools with this exact tool name for the complete input schema.",
+        "Compact handshake schema. Use meta.get_more_tools with this exact tool name for the complete input schema.",
     },
     detailedInputSchema: schema,
   };
@@ -823,14 +777,11 @@ const insertCollectionMcpInputSchema = getOperationInputSchema({
   inputSchema: getInputSchemaMetadata(insertCollectionMcpInput).inputJsonSchema,
 });
 
-const assetsResourceResultDescription =
-  "Pass query as structured tool input using Webstudio JavaScript expressions rather than a JSON-stringified expression or manually authored resource body. Every reachable Assets resource contributes to one shared published database, so create only one final resource per rendered query; update an existing resource instead of creating a replacement, and remove obsolete duplicates. Keep static filters, limits, and offsets literal so bounded overview queries can be materialized. Use output mode fields, select only rendered fields, keep includeMetadata false, and use content mode none when file content is not rendered. For a Markdown detail page, query the Markdown asset directly and use content mode markdown-body-ref; compilation keeps only its document reference in the bundle and fetches the selected body from Asset storage at runtime. Bind the resolved body from item.content.text. Assets expose an ID-keyed map at <dataSourceName>.data and collection information at <dataSourceName>.meta.";
-
 const mcpOperationOverrides = new Map<
   string,
   {
     description: string;
-    inputSchema?: ProjectSessionMcpInputSchema;
+    inputSchema: ProjectSessionMcpInputSchema;
   }
 >([
   [
@@ -847,18 +798,6 @@ const mcpOperationOverrides = new Map<
       description:
         "Create a Collection from array/object data and one repeated-item Webstudio JSX fragment. Internal item parameters and bindings are created atomically.",
       inputSchema: insertCollectionMcpInputSchema,
-    },
-  ],
-  [
-    "create-assets-resource",
-    {
-      description: `Create a scoped Assets resource. ${assetsResourceResultDescription}`,
-    },
-  ],
-  [
-    "update-assets-resource",
-    {
-      description: `Update an Assets resource or its query. ${assetsResourceResultDescription}`,
     },
   ],
 ]);
@@ -1013,9 +952,6 @@ const getUnsupportedInputFieldHint = ({
   ) {
     return " Use get-page/get-page-by-path for page metadata, list-instances to inspect page root contents, and inspect-instance for props, styles, children, bindings, or sources.";
   }
-  if (command === "list-instances" && field === "instanceId") {
-    return " Use rootInstanceId to list a subtree, or inspect-instance to inspect one element.";
-  }
   return "";
 };
 
@@ -1082,40 +1018,19 @@ const normalizeOperationInputAliases = ({
   command: string;
   input: unknown;
 }) => {
-  if (command === "create-page" && isPlainRecord(input)) {
-    const normalizedInput: Record<string, unknown> =
-      "description" in input
-        ? (() => {
-            const { description, meta, ...rest } = input;
-            return {
-              ...rest,
-              meta: {
-                ...(isPlainRecord(meta) ? meta : {}),
-                description,
-              },
-            };
-          })()
-        : input;
-    if (
-      typeof normalizedInput.path !== "string" ||
-      normalizedInput.path === ""
-    ) {
-      return normalizedInput;
-    }
-    try {
-      const base = new URL("https://webstudio.invalid/");
-      const parsed = new URL(normalizedInput.path, base);
-      if (
-        parsed.origin === base.origin &&
-        parsed.search === "" &&
-        parsed.hash === ""
-      ) {
-        return { ...normalizedInput, path: parsed.pathname };
-      }
-    } catch {
-      return normalizedInput;
-    }
-    return normalizedInput;
+  if (
+    command === "create-page" &&
+    isPlainRecord(input) &&
+    "description" in input
+  ) {
+    const { description, meta, ...rest } = input;
+    return {
+      ...rest,
+      meta: {
+        ...(isPlainRecord(meta) ? meta : {}),
+        description,
+      },
+    };
   }
   if (
     command === "insert-component" &&
@@ -1127,57 +1042,6 @@ const normalizeOperationInputAliases = ({
     return { ...rest, mode: position };
   }
   return input;
-};
-
-const normalizeOperationInputValues = (command: string, input: unknown) => {
-  if (
-    command !== "update-styles" ||
-    isPlainRecord(input) === false ||
-    Array.isArray(input.updates) === false
-  ) {
-    return input;
-  }
-  const normalizeStyleValue = (value: unknown) => {
-    if (
-      isPlainRecord(value) &&
-      typeof value.value === "string" &&
-      ["unit", "length", "color"].includes(String(value.type)) &&
-      (value.type !== "color" || "colorSpace" in value === false)
-    ) {
-      return { type: "keyword", value: value.value };
-    }
-    return typeof value === "string" ? { type: "keyword", value } : value;
-  };
-  return {
-    ...input,
-    updates: input.updates.flatMap((update) => {
-      if (isPlainRecord(update) === false) {
-        return [update];
-      }
-      if (typeof update.property === "string" && "value" in update) {
-        return [
-          {
-            ...update,
-            value: normalizeStyleValue(update.value),
-          },
-        ];
-      }
-      const grouped = isPlainRecord(update.styles)
-        ? update.styles
-        : isPlainRecord(update.declarations)
-          ? update.declarations
-          : undefined;
-      if (grouped === undefined) {
-        return [update];
-      }
-      const { styles: _styles, declarations: _declarations, ...rest } = update;
-      return Object.entries(grouped).map(([property, value]) => ({
-        ...rest,
-        property,
-        value: normalizeStyleValue(value),
-      }));
-    }),
-  };
 };
 
 const getNormalizedOperationInput = (
@@ -1199,10 +1063,7 @@ const getNormalizedOperationInput = (
     command: operation.command,
     input: wrappedInput,
   });
-  const normalizedInput = normalizeOperationInputValues(
-    operation.command,
-    parseStringifiedJsonInputFields(aliasedInput, schema)
-  );
+  const normalizedInput = parseStringifiedJsonInputFields(aliasedInput, schema);
   assertKnownInputFields({
     command: operation.command,
     input: normalizedInput,
@@ -1214,7 +1075,7 @@ const getNormalizedOperationInput = (
 const screenshotInputSchema = {
   ...emptyInputSchema,
   description:
-    'Capture the generated site for AI vision review. For the configured project, use { path: "/" }; this refreshes the current MCP session and reloads only the generated site. Never pass a Webstudio Builder/share URL or screenshot the Builder UI. Use { url } only for an intentional standalone external site, or { baseUrl, path } for an existing generated-site server.',
+    "Capture a visual screenshot for AI vision review. Pass { url } for any absolute URL, { path } inside the same long-running MCP server after preview.start, or { baseUrl, path } to capture from an already-running preview/site without starting preview. Use repeated { path } captures to verify multiple generated-site pages.",
   properties: {
     url: {
       type: "string",
@@ -1299,17 +1160,10 @@ const screenshotInputSchema = {
     },
     source: {
       type: "string",
-      enum: projectSessionPreviewSources,
-      default: "session",
+      enum: ["local", "session"],
+      default: "local",
       description:
         "When screenshot needs to start/restart preview for a path, choose local for .webstudio/data.json or session for the current ProjectSession snapshot after MCP edits.",
-    },
-    mode: {
-      type: "string",
-      enum: projectSessionPreviewModes,
-      default: "iterative",
-      description:
-        "Iterative keeps one development server and browser alive while reloading after MCP edits. Production performs a full generated build and is intended for audits and release-like verification.",
     },
     host: {
       type: "string",
@@ -1331,40 +1185,6 @@ const screenshotInputSchema = {
     },
   },
   required: ["viewport"],
-} as const satisfies ProjectSessionMcpInputSchema;
-
-const responsiveScreenshotInputSchema = {
-  ...emptyInputSchema,
-  description:
-    "Capture one generated-site route at multiple viewport sizes in one shared preview/browser session. This starts or refreshes the session preview automatically.",
-  properties: {
-    path: screenshotInputSchema.properties.path,
-    viewports: {
-      type: "array",
-      minItems: 1,
-      maxItems: 8,
-      description: "Viewport dimensions to capture in the provided order.",
-      items: {
-        type: "object",
-        properties: {
-          width: { type: "number" },
-          height: { type: "number" },
-        },
-        required: ["width", "height"],
-        additionalProperties: false,
-      },
-    },
-    fullPage: screenshotInputSchema.properties.fullPage,
-    source: screenshotInputSchema.properties.source,
-    mode: screenshotInputSchema.properties.mode,
-    imageDomains: screenshotInputSchema.properties.imageDomains,
-    browser: screenshotInputSchema.properties.browser,
-    waitUntil: screenshotInputSchema.properties.waitUntil,
-    waitForSelector: screenshotInputSchema.properties.waitForSelector,
-    waitForTimeout: screenshotInputSchema.properties.waitForTimeout,
-    timeout: screenshotInputSchema.properties.timeout,
-  },
-  required: ["path", "viewports"],
 } as const satisfies ProjectSessionMcpInputSchema;
 
 const statusInputSchema = {
@@ -1577,7 +1397,7 @@ const installOcrInputSchema = {
 const previewInputSchema = {
   ...emptyInputSchema,
   description:
-    "Start or refresh the generated-site preview. Iterative mode is the default for repeated MCP edit and screenshot cycles: it keeps one server alive, regenerates the current session, and uses normal page reloads without HMR. Use production mode for release-like audits.",
+    "Regenerate local project files when needed, build them, and start or inspect a long-lived production-like generated-site preview server for visual verification.",
   properties: {
     host: {
       type: "string",
@@ -1585,22 +1405,14 @@ const previewInputSchema = {
     },
     port: {
       type: "number",
-      default: 0,
-      minimum: 0,
-      maximum: 65535,
-      description: "Use 0 to select an available local port automatically.",
+      default: 5173,
     },
     source: {
       type: "string",
-      enum: projectSessionPreviewSources,
-      default: "session",
+      enum: ["local", "session"],
+      default: "local",
       description:
         "Project data source for generated preview: local uses .webstudio/data.json; session materializes the current ProjectSession snapshot first, which is the right choice after MCP mutations.",
-    },
-    mode: {
-      type: "string",
-      enum: projectSessionPreviewModes,
-      default: "iterative",
     },
     imageDomains: {
       type: "array",
@@ -1706,14 +1518,11 @@ const createProjectSessionMcpTool = (
 
 export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
   "meta.guide": [{ brief: "Create a pricing page and style the hero" }],
-  "inspect-auth-context": [{}],
-  "inspect-design-context": [{}],
-  "verify-font-assets": [{ assetIds: ["asset-regular", "asset-bold"] }],
   "workflow.next": [
     { goal: "design-system-page" },
     { goal: "design-system-page", phase: "dry-run-section" },
   ],
-  "meta.get-more-tools": [
+  "meta.get_more_tools": [
     { tools: ["insert-fragment"] },
     { tools: ["insert-component"] },
     { brief: "update-styles" },
@@ -1754,30 +1563,11 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
   "upload-asset": [
     {
       asset: {
-        name: "Rajdhani-SemiBold.woff2",
-        type: "font",
-        format: "woff2",
-        meta: { family: "Rajdhani", style: "normal", weight: 600 },
-      },
-      assetsDir: ".webstudio/assets",
-    },
-    {
-      asset: {
         name: "hero.png",
         type: "image",
         format: "png",
         folderId: "folder-id",
         meta: { width: 1200, height: 630 },
-      },
-      assetsDir: ".webstudio/assets",
-    },
-    {
-      asset: {
-        name: "hero.png",
-        type: "image",
-        format: "png",
-        meta: { width: 1200, height: 630 },
-        force: true,
       },
       assetsDir: ".webstudio/assets",
     },
@@ -1815,7 +1605,7 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
     { assetId: "asset-id" },
     { assetId: "asset-id", folderId: "target-folder-id" },
   ],
-  "preview.start": [{ source: "session" }],
+  "preview.start": [{ host: "127.0.0.1", port: 5173, source: "session" }],
   "preview.status": [{}],
   "preview.stop": [{}],
   status: [{}, { verbose: true }],
@@ -1859,7 +1649,7 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
       parentInstanceId: "parent-id",
       data: { type: "expression", value: "Posts.data.items" },
       itemFragment:
-        "<ws.element ws:tag='article'><ws.element ws:tag='h2'>{expression`collectionItem.title ?? 'Untitled'`}</ws.element></ws.element>",
+        '<ws.element ws:tag="article"><ws.element ws:tag="h2">{expression`collectionItem.title ?? "Untitled"`}</ws.element></ws.element>',
     },
     {
       parentInstanceId: "parent-id",
@@ -1868,37 +1658,29 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
         value: [{ name: "Starter" }, { name: "Pro" }],
       },
       itemFragment:
-        "<ws.element ws:tag='div'>{expression`collectionItem.name`}</ws.element>",
+        '<ws.element ws:tag="div">{expression`collectionItem.name`}</ws.element>',
     },
   ],
   "insert-fragment": [
     {
       parentInstanceId: "parent-id",
       fragment:
-        "<ws.element ws:tag='section' ws:style={css`padding: 32px; display: grid; gap: 16px;`}><ws.element ws:tag='h2'>Northstar Product OS</ws.element><ws.element ws:tag='p'>Reusable patterns for teams.</ws.element></ws.element>",
+        '<ws.element ws:tag="section" ws:style={css`padding: 32px; display: grid; gap: 16px;`}><ws.element ws:tag="h2">Northstar Product OS</ws.element><ws.element ws:tag="p">Reusable patterns for teams.</ws.element></ws.element>',
     },
     {
       parentInstanceId: "parent-id",
       fragment:
-        "<ws.element ws:tag='section' style={{ padding: 32, borderRadius: 16 }}><ws.element ws:tag='h2'>Operations Console</ws.element><ws.element ws:tag='p'>Semantic section with React-style object styles converted into editable Webstudio styles.</ws.element></ws.element>",
+        '<ws.element ws:tag="section" style={{ padding: 32, borderRadius: 16 }}><ws.element ws:tag="h2">Operations Console</ws.element><ws.element ws:tag="p">Semantic section with React-style object styles converted into editable Webstudio styles.</ws.element></ws.element>',
     },
     {
       parentInstanceId: "parent-id",
       fragment:
-        "<ws.element ws:tag='section' ws:tokens={[token('accent', css`color: #0f766e;`)]} ws:style={css`display: grid; gap: 12px;`}><ws.element ws:tag='h2'>Token Example</ws.element><ws.element ws:tag='button' onClick={new ActionValue(['event'], expression`console.log(event)`)}>Track launch</ws.element></ws.element>",
+        '<ws.element ws:tag="section" ws:tokens={[token("accent", css`color: #0f766e;`)]} ws:style={css`display: grid; gap: 12px;`}><ws.element ws:tag="h2">Token Example</ws.element><ws.element ws:tag="button" onClick={new ActionValue(["event"], expression`console.log(event)`)}>Track launch</ws.element></ws.element>',
     },
     {
       parentInstanceId: "parent-id",
       fragment:
-        "<ws.element ws:tag='section'><radix.Switch><radix.SwitchThumb /></radix.Switch></ws.element>",
-    },
-  ],
-  "insert-fragment-verified": [
-    {
-      parentInstanceId: "parent-id",
-      pagePath: "/pricing",
-      fragment:
-        "<ws.element ws:tag='section'><ws.element ws:tag='h2'>Pricing</ws.element></ws.element>",
+        '<ws.element ws:tag="section"><radix.Switch><radix.SwitchThumb /></radix.Switch></ws.element>',
     },
   ],
   "update-text": [
@@ -1992,7 +1774,7 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
     {
       scopeInstanceId: "body-id",
       name: "tags",
-      value: { type: "json", value: ["news", "product"] },
+      value: { type: "string[]", value: ["news", "product"] },
     },
     {
       scopeInstanceId: "body-id",
@@ -2003,7 +1785,7 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
   "update-variable": [
     {
       dataSourceId: "variable-id",
-      values: { value: { type: "json", value: ["news", "product"] } },
+      values: { value: { type: "string[]", value: ["news", "product"] } },
     },
   ],
   "create-resource": [
@@ -2071,138 +1853,7 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
       exposeAsDataSource: false,
     },
   ],
-  "list-assets-resources": [{}],
-  "get-assets-resource": [{ resourceId: "resource-id" }],
-  "create-assets-resource": [
-    {
-      name: "All assets",
-      scopeInstanceId: "body-id",
-      dataSourceName: "assets",
-    },
-    {
-      name: "Published posts",
-      scopeInstanceId: "body-id",
-      dataSourceName: "posts",
-      query: {
-        where: {
-          all: [
-            {
-              field: ["extension"],
-              operator: "eq",
-              value: { type: "literal", value: "json" },
-            },
-            {
-              field: ["properties", "kind"],
-              operator: "eq",
-              value: { type: "literal", value: "post" },
-            },
-            {
-              field: ["properties", "draft"],
-              operator: "ne",
-              value: "true",
-            },
-          ],
-        },
-        sort: [
-          { field: ["properties", "publishedAt"], direction: "desc" },
-          { field: ["id"], direction: "asc" },
-        ],
-        limit: "20",
-      },
-    },
-    {
-      name: "Post by slug",
-      scopeInstanceId: "body-id",
-      dataSourceName: "post",
-      query: {
-        where: {
-          all: [
-            {
-              field: ["extension"],
-              operator: "eq",
-              value: { type: "literal", value: "json" },
-            },
-            {
-              field: ["properties", "kind"],
-              operator: "eq",
-              value: { type: "literal", value: "post" },
-            },
-            {
-              any: [
-                {
-                  field: ["properties", "slug"],
-                  operator: "eq",
-                  value: "system.params.slug",
-                },
-                {
-                  field: ["properties", "id"],
-                  operator: "eq",
-                  value: "system.params.slug",
-                },
-              ],
-            },
-          ],
-        },
-        limit: "1",
-        output: {
-          mode: "fields",
-          includeMetadata: false,
-          fields: [["properties", "body"]],
-        },
-        content: { mode: "none" },
-      },
-    },
-  ],
-  "update-assets-resource": [
-    {
-      resourceId: "resource-id",
-      values: {
-        query: {
-          limit: "50",
-        },
-      },
-    },
-    { resourceId: "resource-id", values: { query: null } },
-  ],
-  "validate-asset-query": [
-    {
-      query: {
-        where: {
-          all: [
-            {
-              field: ["properties", "slug"],
-              operator: "eq",
-              value: "hello-world",
-            },
-          ],
-        },
-        limit: 1,
-      },
-    },
-  ],
-  "preview-asset-query": [
-    {
-      query: {
-        where: {
-          all: [
-            {
-              field: ["properties", "slug"],
-              operator: "eq",
-              value: "hello-world",
-            },
-          ],
-        },
-        limit: 1,
-        content: { mode: "markdown-body-ref", maxBytes: 1_048_576 },
-      },
-    },
-  ],
-  "get-asset-field-catalog": [{}],
   "update-asset": [
-    {
-      assetId: "font-asset-id",
-      values: { meta: { family: "Rajdhani", style: "normal", weight: 600 } },
-    },
     {
       assetId: "asset-id",
       values: { description: "Team collaborating around a whiteboard" },
@@ -2215,10 +1866,7 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
   ],
   "list-assets": [{}, { verbose: true }],
   "replace-asset": [{ fromAssetId: "old-asset-id", toAssetId: "new-asset-id" }],
-  "delete-asset": [
-    { assetIds: ["asset-id"] },
-    { assetIdPrefixes: ["generated-prefix"] },
-  ],
+  "delete-asset": [{ assetIdsOrPrefixes: ["asset-id"] }],
   "set-image-descriptions": [
     {
       updates: [
@@ -2298,26 +1946,6 @@ export const mcpArgumentExamples: Record<string, readonly unknown[]> = {
       output: "current.png",
       viewport: { width: 1440, height: 900 },
       browser: "auto",
-    },
-  ],
-  "screenshot.responsive": [
-    {
-      path: "/pricing",
-      viewports: [
-        { width: 1440, height: 900 },
-        { width: 390, height: 844 },
-      ],
-      source: "session",
-    },
-  ],
-  "verify-page-responsive": [
-    {
-      path: "/pricing",
-      viewports: [
-        { width: 1440, height: 900 },
-        { width: 390, height: 844 },
-      ],
-      source: "session",
     },
   ],
   "screenshot.diff": [
@@ -2410,9 +2038,8 @@ const previewDataSchema = {
     url: { type: "string" },
     pid: { type: "integer" },
     running: { type: "boolean" },
-    mode: { type: "string", enum: projectSessionPreviewModes },
   },
-  required: ["url", "running", "mode"],
+  required: ["url", "running"],
   additionalProperties: false,
 } as const satisfies InputJsonSchema;
 
@@ -2586,13 +2213,13 @@ const sessionTools: readonly ProjectSessionMcpTool[] = [
     },
   }),
   createProjectSessionMcpTool({
-    name: "meta.get-more-tools",
+    name: "meta.get_more_tools",
     description:
       'Return detailed tool metadata and examples. Prefer exact tool names, for example {"tools":["insert-fragment"]}. To search, pass a string brief such as {"brief":"style updates"}.',
     inputSchema: toolDetailsInputSchema,
     annotations: {
-      command: "meta.get-more-tools",
-      operationId: "meta.get-more-tools",
+      command: "meta.get_more_tools",
+      operationId: "meta.get_more_tools",
       method: "session",
       permit: "api",
       localCapable: true,
@@ -2935,138 +2562,6 @@ const sessionTools: readonly ProjectSessionMcpTool[] = [
   }),
 ];
 
-const authContextOperationCommands = [
-  "get-project-settings",
-  "list-pages",
-  "list-resources",
-  "list-variables",
-] as const;
-
-const inspectAuthContextTool = createProjectSessionMcpTool({
-  name: "inspect-auth-context",
-  description:
-    "Return one bounded authentication discovery bundle with project settings, pages, resources, and variables. Use once before authentication mutations instead of calling the four underlying reads separately.",
-  inputSchema: emptyInputSchema,
-  mcpExamples: getMcpExamples("inspect-auth-context"),
-  annotations: {
-    command: "inspect-auth-context",
-    operationId: "workflow.auth-context",
-    method: "session",
-    permit: "view",
-    localCapable: true,
-    serverOnly: false,
-    readNamespaces: ["projectSettings", "pages", "resources", "dataSources"],
-    writeNamespaces: [],
-    invalidatesNamespaces: [],
-    retryOnConflict: false,
-  },
-});
-
-const designContextOperationCommands = [
-  "list-pages",
-  "list-breakpoints",
-  "list-design-tokens",
-  "list-assets",
-  "list-variables",
-] as const;
-
-const inspectDesignContextTool = createProjectSessionMcpTool({
-  name: "inspect-design-context",
-  description:
-    "Return one bounded design discovery bundle with pages, breakpoints, design tokens, assets, and variables. Use once before design-driven page mutations instead of calling the five underlying reads separately.",
-  inputSchema: emptyInputSchema,
-  mcpExamples: getMcpExamples("inspect-design-context"),
-  annotations: {
-    command: "inspect-design-context",
-    operationId: "workflow.design-context",
-    method: "session",
-    permit: "view",
-    localCapable: true,
-    serverOnly: false,
-    readNamespaces: ["pages", "breakpoints", "styles", "assets", "dataSources"],
-    writeNamespaces: [],
-    invalidatesNamespaces: [],
-    retryOnConflict: false,
-  },
-});
-
-const verifyFontAssetsInputSchema = {
-  ...emptyInputSchema,
-  properties: {
-    assetIds: {
-      type: "array",
-      description: "Font asset ids returned by upload-assets.",
-      items: { type: "string" },
-      minItems: 1,
-      maxItems: 50,
-    },
-  },
-  required: ["assetIds"],
-} as const satisfies ProjectSessionMcpInputSchema;
-
-const verifyFontAssetsTool = createProjectSessionMcpTool({
-  name: "verify-font-assets",
-  description:
-    "Refresh the asset namespace and return several persisted font assets in one verification call.",
-  inputSchema: verifyFontAssetsInputSchema,
-  mcpExamples: getMcpExamples("verify-font-assets"),
-  annotations: {
-    command: "verify-font-assets",
-    operationId: "workflow.verify-font-assets",
-    method: "session",
-    permit: "api",
-    localCapable: true,
-    serverOnly: false,
-    readNamespaces: ["assets"],
-    writeNamespaces: [],
-    invalidatesNamespaces: [],
-    retryOnConflict: false,
-  },
-});
-
-const insertFragmentVerifiedOperationCommands = [
-  "insert-fragment",
-  "verify-bindings",
-] as const;
-
-const createInsertFragmentVerifiedTool = (
-  operations: readonly PublicMcpOperation[]
-) => {
-  const insertion = operations.find(
-    (operation) => operation.command === "insert-fragment"
-  );
-  const verification = operations.find(
-    (operation) => operation.command === "verify-bindings"
-  );
-  if (insertion === undefined || verification === undefined) {
-    throw new Error(
-      "insert-fragment-verified requires insert-fragment and verify-bindings operations."
-    );
-  }
-  const mergeNamespaces = (
-    key: "readNamespaces" | "writeNamespaces" | "invalidatesNamespaces"
-  ) => [...new Set([...insertion[key], ...verification[key]])];
-  return createProjectSessionMcpTool({
-    name: "insert-fragment-verified",
-    description:
-      "Insert an authored Webstudio JSX fragment and immediately verify persisted bindings on its page. Prefer this when binding verification is required directly after insertion.",
-    inputSchema: insertFragmentVerifiedMcpInputSchema,
-    mcpExamples: getMcpExamples("insert-fragment-verified"),
-    annotations: {
-      command: "insert-fragment-verified",
-      operationId: "workflow.insert-fragment-verified",
-      method: "mutation",
-      permit: insertion.permit,
-      localCapable: insertion.localCapable && verification.localCapable,
-      serverOnly: insertion.serverOnly || verification.serverOnly,
-      readNamespaces: mergeNamespaces("readNamespaces"),
-      writeNamespaces: mergeNamespaces("writeNamespaces"),
-      invalidatesNamespaces: mergeNamespaces("invalidatesNamespaces"),
-      retryOnConflict: insertion.retryOnConflict,
-    },
-  });
-};
-
 const screenshotTool = createProjectSessionMcpTool({
   name: "screenshot",
   description:
@@ -3086,54 +2581,6 @@ const screenshotTool = createProjectSessionMcpTool({
     retryOnConflict: false,
   },
 });
-
-const responsiveScreenshotTool = createProjectSessionMcpTool({
-  name: "screenshot.responsive",
-  description:
-    "Capture one generated route at multiple viewport sizes in one call. Starts or refreshes the session preview automatically and reuses one browser session.",
-  inputSchema: responsiveScreenshotInputSchema,
-  mcpExamples: getMcpExamples("screenshot.responsive"),
-  annotations: {
-    command: "screenshot.responsive",
-    operationId: "screenshot.responsive",
-    method: "session",
-    permit: "api",
-    localCapable: false,
-    serverOnly: true,
-    readNamespaces: [],
-    writeNamespaces: [],
-    invalidatesNamespaces: [],
-    retryOnConflict: false,
-  },
-});
-
-const createResponsivePageVerificationTool = (
-  operations: readonly PublicMcpOperation[]
-) => {
-  const audit = operations.find((operation) => operation.command === "audit");
-  if (audit === undefined) {
-    throw new Error("verify-page-responsive requires the audit operation.");
-  }
-  return createProjectSessionMcpTool({
-    name: "verify-page-responsive",
-    description:
-      "Capture one generated route at multiple viewport sizes and immediately run its static audit in one terminal verification call.",
-    inputSchema: responsiveScreenshotInputSchema,
-    mcpExamples: getMcpExamples("verify-page-responsive"),
-    annotations: {
-      command: "verify-page-responsive",
-      operationId: "workflow.verify-page-responsive",
-      method: "session",
-      permit: audit.permit,
-      localCapable: false,
-      serverOnly: true,
-      readNamespaces: audit.readNamespaces,
-      writeNamespaces: [],
-      invalidatesNamespaces: [],
-      retryOnConflict: false,
-    },
-  });
-};
 
 const screenshotDiffTool = createProjectSessionMcpTool({
   name: "screenshot.diff",
@@ -3228,7 +2675,7 @@ const previewTools: readonly ProjectSessionMcpTool[] = [
   createProjectSessionMcpTool({
     name: "preview.start",
     description:
-      "Start or refresh a generated-site preview. The iterative default keeps the server and browser alive and normally reloads the generated route after each MCP edit; production mode performs the full build used by audits.",
+      "Regenerate local project files when needed, build them, then start or restart a production-like generated-site preview server for fast visual verification while MCP is running.",
     inputSchema: previewInputSchema,
     outputSchema: getMcpOutputSchema(previewDataSchema),
     mcpExamples: getMcpExamples("preview.start"),
@@ -3342,12 +2789,15 @@ export type ProjectSessionMcpResource = {
 
 type SdkTool = {
   name: string;
-  description?: string;
+  description: string;
   inputSchema: ProjectSessionMcpInputSchema;
-  annotations?: {
-    readOnlyHint?: true;
-    destructiveHint?: false;
-    openWorldHint?: false;
+  annotations: {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    openWorldHint: boolean;
+  };
+  _meta: {
+    webstudio: ProjectSessionMcpTool["annotations"];
   };
 };
 
@@ -3355,13 +2805,6 @@ export const hiddenMcpOperationCommands = new Set<string>([
   // Hydrated Map-backed sourceData is available only to typed API callers.
   // MCP callers use duplicate-page or serializable page-transfer workflows.
   "copy-page",
-]);
-
-const compactMcpOperationCommands = new Set([
-  "create-assets-resource",
-  "update-assets-resource",
-  "validate-asset-query",
-  "preview-asset-query",
 ]);
 
 const detailedMcpInputSchemas = new WeakMap<
@@ -3379,7 +2822,6 @@ export const listProjectSessionMcpTools = (
     includeImport?: boolean;
     includeDownloadAsset?: boolean;
     includeScreenshot?: boolean;
-    includeResponsiveScreenshot?: boolean;
     includeScreenshotDiff?: boolean;
     includeInstallOcr?: boolean;
     includePreview?: boolean;
@@ -3392,14 +2834,13 @@ export const listProjectSessionMcpTools = (
     )
     .map((operation) => {
       const override = mcpOperationOverrides.get(operation.command);
-      const operationInputSchema = getMcpOperationInputSchema(operation, {
-        includeRenderedAudit:
-          options.includeScreenshot === true && options.includePreview === true,
-        schema: override?.inputSchema,
-      });
       const { inputSchema, detailedInputSchema } = getHandshakeInputSchema(
-        operationInputSchema,
-        compactMcpOperationCommands.has(operation.command) ? 2_500 : undefined
+        getMcpOperationInputSchema(operation, {
+          includeRenderedAudit:
+            options.includeScreenshot === true &&
+            options.includePreview === true,
+          schema: override?.inputSchema,
+        })
       );
       const tool = createProjectSessionMcpTool({
         name: operation.command,
@@ -3432,33 +2873,10 @@ export const listProjectSessionMcpTools = (
     ...tool,
     mcpExamples: getMcpExamples(tool.name),
   })),
-  ...(authContextOperationCommands.every((command) =>
-    operations.some((operation) => operation.command === command)
-  )
-    ? [inspectAuthContextTool]
-    : []),
-  ...(designContextOperationCommands.every((command) =>
-    operations.some((operation) => operation.command === command)
-  )
-    ? [inspectDesignContextTool]
-    : []),
-  ...(operations.some((operation) => operation.command === "get-asset")
-    ? [verifyFontAssetsTool]
-    : []),
-  ...(insertFragmentVerifiedOperationCommands.every((command) =>
-    operations.some((operation) => operation.command === command)
-  )
-    ? [createInsertFragmentVerifiedTool(operations)]
-    : []),
   ...(options.includeRestorePoints ? restorePointTools : []),
   ...(options.includeImport ? [importTool] : []),
   ...(options.includeDownloadAsset ? [downloadAssetTool] : []),
   ...(options.includeScreenshot ? [screenshotTool] : []),
-  ...(options.includeResponsiveScreenshot ? [responsiveScreenshotTool] : []),
-  ...(options.includeResponsiveScreenshot &&
-  operations.some((operation) => operation.command === "audit")
-    ? [createResponsivePageVerificationTool(operations)]
-    : []),
   ...(options.includeScreenshotDiff ? [screenshotDiffTool] : []),
   ...(options.includeInstallOcr ? [installOcrTool] : []),
   ...(options.includePreview ? previewTools : []),
@@ -3515,7 +2933,6 @@ const capabilityAreas = [
       "preview.status",
       "preview.stop",
       "screenshot",
-      "verify-page-responsive",
       "screenshot.diff",
       "vision.install-ocr",
     ],
@@ -3526,11 +2943,8 @@ const capabilityAreas = [
     tools: [
       "meta.index",
       "meta.guide",
-      "meta.get-more-tools",
+      "meta.get_more_tools",
       "workflow.next",
-      "inspect-auth-context",
-      "inspect-design-context",
-      "verify-font-assets",
       "components.summary",
       "components.coverage-plan",
       "components.coverage-status",
@@ -3585,14 +2999,12 @@ const capabilityAreas = [
       "list-instances",
       "inspect-instance",
       "insert-fragment",
-      "insert-fragment-verified",
       "insert-component",
       "move-instance",
       "clone-instance",
       "delete-instance",
       "list-texts",
       "update-text",
-      "set-text-content",
       "replace-text",
       "replace-prop-text",
       "update-props",
@@ -3725,13 +3137,13 @@ const getToolNamesInput = (input: unknown) => {
   const value = input.tools;
   if (Array.isArray(value) === false) {
     throw new Error(
-      `meta.get-more-tools input.tools must be an array of strings when provided. Received ${typeof value}.`
+      `meta.get_more_tools input.tools must be an array of strings when provided. Received ${typeof value}.`
     );
   }
   return value.map((tool, index) => {
     if (typeof tool !== "string" || tool === "") {
       throw new Error(
-        `meta.get-more-tools input.tools[${index}] must be a non-empty string.`
+        `meta.get_more_tools input.tools[${index}] must be a non-empty string.`
       );
     }
     return tool;
@@ -3797,7 +3209,7 @@ const getTemplateInput = (input: unknown) => {
 const getInsertFragmentInput = async (input: unknown) => {
   if (isPlainRecord(input) === false) {
     throw new Error(
-      'insert-fragment requires {"parentInstanceId":"...","fragment":"<ws.element ws:tag=\'section\' />"}.'
+      'insert-fragment requires {"parentInstanceId":"...","fragment":"<ws.element ws:tag=\\"section\\" />"}.'
     );
   }
   if ("parentId" in input && "parentInstanceId" in input === false) {
@@ -3820,7 +3232,7 @@ const getInsertFragmentInput = async (input: unknown) => {
   }
   if (typeof input.fragment !== "string") {
     throw new Error(
-      'insert-fragment requires fragment as a Webstudio JSX string, for example {"fragment":"<ws.element ws:tag=\'section\' />"}.'
+      'insert-fragment requires fragment as a Webstudio JSX string, for example {"fragment":"<ws.element ws:tag=\\"section\\" />"}.'
     );
   }
   const fragment = await parseWebstudioJsxFragment(input.fragment);
@@ -4434,7 +3846,7 @@ const animationComponentGuidanceByComponent = new Map<string, string>([
       'Set the action prop to an animationAction. Use type:"view" for visibility-driven entry/exit animations and type:"scroll" for scroll-progress animations.',
       "For view actions, common settings are axis, subject, insetStart, insetEnd, isPinned, debug, and animations. Use subject only when another element should drive progress.",
       "For scroll actions, common settings are axis, source (nearest, root, or closest), isPinned, debug, and animations.",
-      'Each animation needs keyframes; timing is optional and defaults to {}. In keyframes[].styles, use CSS property names with raw CSS strings such as transform:"translateX(-75%)"; update-props parses them into Webstudio style data. Timing can use rangeStart/rangeEnd, fill, easing, duration, delay, and iterations. Duration makes Range End unnecessary because duration defines when the animation ends.',
+      "Each animation needs timing and keyframes. Timing can use rangeStart/rangeEnd, fill, easing, duration, delay, and iterations. Duration makes Range End unnecessary because duration defines when the animation ends.",
       'Use fill:"backwards" for in animations from animation styles to canvas styles, and fill:"forwards" for out animations from canvas styles to animation styles.',
       "Direct child animations expose --index and --total to support staggered formulas such as calc(var(--index) * 20%).",
       "For polished pages, design the element's normal canvas styles as the final state, then set the Animation Group keyframes to the starting or ending animated state.",
@@ -5429,16 +4841,9 @@ const getComponentDetails = (component: string) => {
   };
 };
 
-const insertFragmentInputFilePath = ".temp/insert-fragment.json";
-const insertFragmentInputFileExample = {
-  parentInstanceId: "parent-id",
-  fragment:
-    "<ws.element ws:tag='section' ws:style={css`padding: 32px; display: grid; gap: 12px;`}><ws.element ws:tag='h2'>Section title</ws.element><ws.element ws:tag='p'>Section copy.</ws.element></ws.element>",
-};
-
 const getToolCatalogOverview = (tools: readonly ProjectSessionMcpTool[]) => ({
   usage:
-    'Short tool overview. Do one small discovery step, then act. Start with meta.index or meta.guide({"brief":"Create a pricing page"}). Use meta.get-more-tools({"tools":["insert-fragment"]}) for exact details, or read the bounded webstudio://project/tools catalog.',
+    'Short tool overview. Do one small discovery step, then act. Start with meta.index or meta.guide({"brief":"Create a pricing page"}). Use meta.get_more_tools({"tools":["insert-fragment"]}) for exact details, or read the bounded webstudio://project/tools catalog.',
   count: tools.length,
   capabilities: filterCapabilities(tools).map((capability) => ({
     area: capability.area,
@@ -5470,8 +4875,9 @@ const getMetaIndex = (
       overview:
         "Do not call every discovery tool up front. Use this meta.index response for orientation, then call at most one focused discovery tool before acting.",
       tools:
-        'Use meta.get-more-tools({"tools":["insert-fragment"]}) for the primary authored/styled insertion tool. Use {"brief":"style updates"} only for search. Page through webstudio://project/tools only when broader operation discovery is necessary.',
-      insertFragment: `Primary authored/styled insertion command shape: save ${JSON.stringify(insertFragmentInputFileExample)} as ${insertFragmentInputFilePath}, then run node packages/cli/local.js insert-fragment --input-file ${insertFragmentInputFilePath} --dry-run. Use parentInstanceId, not parentId. Use Webstudio components/helpers such as ws.element, radix.*, css, token, expression, and ActionValue. Use ws:style={css\`...\`} for Webstudio-native CSS, or style={{ padding: 24 }} for React-style object syntax converted into editable Webstudio styles. Use node packages/cli/local.js mcp single-op-call insert-fragment only when you need the explicit MCP form.`,
+        'Use meta.get_more_tools({"tools":["insert-fragment"]}) for the primary authored/styled insertion tool. Use {"brief":"style updates"} only for search. Page through webstudio://project/tools only when broader operation discovery is necessary.',
+      insertFragment:
+        'Primary authored/styled insertion command shape: node packages/cli/local.js insert-fragment \'{"parentInstanceId":"parent-id","fragment":"<ws.element ws:tag=\\"section\\" ws:style={css`padding: 32px; display: grid; gap: 12px;`}><ws.element ws:tag="h2">Section title</ws.element><ws.element ws:tag="p">Section copy.</ws.element></ws.element>"}\' --dry-run. Use parentInstanceId, not parentId. Use Webstudio components/helpers such as ws.element, radix.*, css, token, expression, and ActionValue. Use ws:style={css`...`} for Webstudio-native CSS, or style={{ padding: 24 }} for React-style object syntax converted into editable Webstudio styles. Use node packages/cli/local.js mcp single-op-call insert-fragment only when you need the explicit MCP form.',
       resources:
         "Use MCP resources/list to discover overview and full resources.",
       components:
@@ -5485,7 +4891,7 @@ const getMetaIndex = (
       workflow:
         'Use workflow.next({"goal":"design-system-page"}) for one bounded phase when delegated/non-streaming agents must return progress instead of silently running a broad task.',
       details:
-        'Use meta.get-more-tools({"tools":["insert-fragment"]}) for matching params and examples.',
+        'Use meta.get_more_tools({"tools":["insert-fragment"]}) for matching params and examples.',
     },
     delegatedAgentRule:
       "If your parent cannot see live command output, treat each checkpoint as the unit of work. If the parent asks for status within 30 seconds, run exactly one shortcut command such as webstudio meta.index or one explicit webstudio mcp single-op-call command, report its command/result, and wait before the next MCP command.",
@@ -5508,131 +4914,6 @@ const getMetaIndex = (
 };
 
 const metaGoalGuides = [
-  {
-    pattern:
-      /markdown(?:-|\s)*(?:based|backed)?\s*blog|blog.*markdown|assets?(?:-|\s)*backed\s*blog/i,
-    tools: [
-      "create-asset-folder",
-      "upload-assets",
-      "list-pages",
-      "list-assets",
-      "get-asset-field-catalog",
-      "validate-asset-query",
-      "preview-asset-query",
-      "create-page",
-      "create-assets-resource",
-      "insert-fragment-verified",
-      "insert-collection",
-      "verify-page-responsive",
-    ],
-    workflow: [
-      'Call meta.get-more-tools with {"tools":["create-assets-resource"]} once for the complete nested query contract. Use exact tool names, not brief search, and do not repeat discovery for this workflow.',
-      'Create one Blog asset folder. Upload all Markdown source files together in one upload-assets call with assetsDir ".webstudio/assets". Put queryable metadata such as slug, title, author, publishedAt, excerpt, and draft in each file\'s frontmatter. Every file must use {"name":"<filename>.md","type":"file","format":"md","folderId":"<blog-folder-id>","meta":{}}. Do not create companion JSON descriptors, use a combined format value, or retry a failed mutation; report its actionable error instead.',
-      'Ensure the blog has exactly two Builder pages: an overview at the fixed path "/blog" and one detail page at the dynamic path "/blog/:slug". Create each page once with a committed call; do not dry-run it. Both pages load their content from Assets resources. Do not create one page per post or copy Markdown content into page-specific static structures.',
-      "Every reachable Assets data source contributes its query to one shared published database. Keep exactly one final Assets resource for the overview and one for the detail page. Never create a placeholder, preview copy, or repair replacement; update the existing scoped resource when requirements change and remove obsolete duplicates.",
-      'Field paths are arrays of segments, for example field:["extension"]. Literal query values use {"type":"literal","value":"..."}; raw strings are runtime expressions. Keep every overview filter value, limit, and offset literal so the bounded metadata-only result can be materialized instead of retaining its fields across every article. Use a deterministic secondary ID sort. Query Markdown posts with static extension and blog-folder constraints before any dynamic condition. Use output.mode:"fields", includeMetadata:false, and only fields rendered by that route.',
-      'Keep content.mode:"none" on the overview and use content.mode:"markdown-body-ref" only on the detail route. The detail query should have exactly one dynamic value, system.params.slug, a literal limit of 1, and only the title and author metadata rendered above Markdown Embed. The published database keeps only the Markdown document reference and fetches the selected body from Asset storage at runtime.',
-      "Call create-assets-resource exactly once with recipe.overviewResource after substituting the returned /blog root id and Blog folder id. Then call it exactly once with recipe.detailResource after substituting the returned /blog/:slug root id and the same Blog folder id.",
-      'Call insert-collection exactly once with the entire recipe.overviewCollection object and exactly once with the entire recipe.detailCollection object, changing only parentInstanceId to the returned root id. Do not reshape or stringify any field: data must remain the recipe object {"type":"expression","value":"posts.data"} or {"type":"expression","value":"post.data"}. Do not improvise another fragment or call meta.get-more-tools again.',
-      "Validate both queries and preview the detail query with one concrete slug before saving dynamic expressions. Query-preview diagnostics report this query separately from the merged published database; use the merged database measurement when checking the deployment limit. The merged database must contain every source document without truncation, no embedded Markdown contents, and only one materialized overview query.",
-      "Verify only after both Collections succeed and confirm that both pages load their content from Assets. Call verify-page-responsive once for /blog and once for one concrete detail route, including empty/not-found behavior, before finishing. If any call fails, stop and report it without retrying.",
-    ],
-    recipe: {
-      overviewResource: {
-        name: "Published posts",
-        scopeInstanceId: "<overview-root-id>",
-        dataSourceName: "posts",
-        query: {
-          where: {
-            all: [
-              {
-                field: ["extension"],
-                operator: "eq",
-                value: { type: "literal", value: "md" },
-              },
-              {
-                field: ["folderId"],
-                operator: "eq",
-                value: { type: "literal", value: "<blog-folder-id>" },
-              },
-              {
-                field: ["properties", "draft"],
-                operator: "ne",
-                value: { type: "literal", value: true },
-              },
-            ],
-          },
-          sort: [
-            { field: ["properties", "publishedAt"], direction: "desc" },
-            { field: ["id"], direction: "asc" },
-          ],
-          limit: { type: "literal", value: 20 },
-          offset: { type: "literal", value: 0 },
-          output: {
-            mode: "fields",
-            includeMetadata: false,
-            fields: [
-              ["properties", "title"],
-              ["properties", "slug"],
-              ["properties", "publishedAt"],
-              ["properties", "author"],
-              ["properties", "excerpt"],
-            ],
-          },
-          content: { mode: "none" },
-        },
-      },
-      detailResource: {
-        name: "Post by slug",
-        scopeInstanceId: "<detail-root-id>",
-        dataSourceName: "post",
-        query: {
-          where: {
-            all: [
-              {
-                field: ["extension"],
-                operator: "eq",
-                value: { type: "literal", value: "md" },
-              },
-              {
-                field: ["folderId"],
-                operator: "eq",
-                value: { type: "literal", value: "<blog-folder-id>" },
-              },
-              {
-                field: ["properties", "slug"],
-                operator: "eq",
-                value: "system.params.slug",
-              },
-            ],
-          },
-          limit: { type: "literal", value: 1 },
-          offset: { type: "literal", value: 0 },
-          output: {
-            mode: "fields",
-            includeMetadata: false,
-            fields: [
-              ["properties", "title"],
-              ["properties", "author"],
-            ],
-          },
-          content: { mode: "markdown-body-ref" },
-        },
-      },
-      overviewCollection: {
-        parentInstanceId: "<overview-root-id>",
-        data: { type: "expression", value: "posts.data" },
-        itemFragment:
-          '<ws.element ws:tag="article"><ws.element ws:tag="h2">{expression`collectionItem.properties.title ?? "Untitled"`}</ws.element><ws.element ws:tag="p">{expression`collectionItem.properties.excerpt ?? ""`}</ws.element><ws.element ws:tag="p">By {expression`collectionItem.properties.author.name`}</ws.element><ws.element ws:tag="time">{expression`collectionItem.properties.publishedAt ?? ""`}</ws.element><ws.element ws:tag="a" href={expression`"/blog/" + collectionItem.properties.slug`}>Read article</ws.element></ws.element>',
-      },
-      detailCollection: {
-        parentInstanceId: "<detail-root-id>",
-        data: { type: "expression", value: "post.data" },
-        itemFragment:
-          '<ws.element ws:tag="article"><ws.element ws:tag="h1">{expression`collectionItem.properties.title ?? "Untitled"`}</ws.element><ws.element ws:tag="p">By {expression`collectionItem.properties.author.name`}</ws.element><$.MarkdownEmbed code={expression`collectionItem.content.text`} /></ws.element>',
-      },
-    },
-  },
   {
     pattern: /json\s*-?\s*ld|structured\s+data/i,
     tools: [
@@ -5690,75 +4971,59 @@ const metaGoalGuides = [
     pattern:
       /authenticated?\s+(?:page|route|screen)|(?:supabase|firebase)\s+auth|sign(?:ed)?[- ]?(?:in|out)|login\s+(?:page|flow)|user\s+session/i,
     tools: [
-      "inspect-auth-context",
+      "get-project-settings",
+      "list-resources",
+      "list-variables",
       "list-instances",
       "create-page",
       "create-resource",
       "create-variable",
-      "insert-fragment-verified",
+      "insert-fragment",
+      "bind-props",
+      "verify-bindings",
       "update-page",
-      "verify-page-responsive",
-    ],
-    workflow: [
-      "Inspect the project's existing auth resources, variables, page settings, and agent instructions before choosing a provider workflow. Call inspect-auth-context exactly once instead of calling get-project-settings, list-pages, list-resources, or list-variables separately; use at most one focused search-project call only when that bundle does not identify the auth convention. Treat its pages section as authoritative for route existence. Do not call get-page-by-path to confirm that /account is absent. Reuse that convention; do not add a second auth system implicitly.",
-      "Do not call meta.index after this guide. If an exact mutation schema is still needed, make at most one meta.get-more-tools call listing all immediately required authoring tools rather than rediscovering them one at a time.",
-      "Never place credentials, service-role keys, refresh tokens, private session values, or authenticated response bodies in project data, command output, screenshots, agent instructions, or error reports. Ask the user to configure secrets in the provider/server environment.",
-      "Keep all four auth states in the editable component structure even when bindings select only one at runtime. Give each state a visible label using the exact terms signed-out, loading, signed-in, and failed-auth so authors can inspect and verify every state. Use page basic auth only when the user asks for Webstudio's fixed login/password gate; it is not Supabase or Firebase authentication.",
-      "Use focused resources and variables for public client configuration and session-shaped data. Keep authorization enforcement and privileged provider calls server-side; a hidden Builder element is not an authorization boundary.",
-      "When fixture/session data must feed a resource, create the page and scoped fixture variables there. Use create-page's returned rootInstanceId directly instead of listing instances to rediscover it. Call list-variables after creation only when a resource expression actually needs the returned encoded name. Do not repeat list-variables when the fixture variable is not referenced, as in the expression-free state gallery, and do not guess or reference variables before they exist.",
-      'Create resources only after their scope and referenced variables exist. When reusing an existing server-mediated auth convention, copy its fixed request URL exactly into resource.url; resource.url is the HTTP request target, not a provider call or session-state expression. For the discovered /api/auth/session convention, use create-resource with resource:{name:"Account session via server",method:"get",url:"/api/auth/session",headers:[],searchParams:[]}, the new page root as scopeInstanceId, and a descriptive dataSourceName. Use literal wrappers only for fixed header, search-parameter, and body text.',
-      "Keep the server-mediated session resource as provider-convention evidence, but use only non-secret scoped fixture variables to drive local auth-state visibility. Do not bind that server-only resource into local preview rendering: its endpoint is intentionally absent locally and can recurse through the generated route.",
-      'Insert signed-out, loading, signed-in, and failed-auth panels together as one expression-free semantic fragment that acts as a state gallery. Keep all four panels visible together for local visual verification; do not add conditional visibility bindings or mutate fixture state solely to capture more screenshots. Use that exact fragment verbatim without adding styles, props, expressions, components, or changing its nesting: <ws.element ws:tag="main"><ws.element ws:tag="section"><ws.element ws:tag="h2">Signed-out</ws.element></ws.element><ws.element ws:tag="section"><ws.element ws:tag="h2">Loading</ws.element></ws.element><ws.element ws:tag="section"><ws.element ws:tag="h2">Signed-in</ws.element></ws.element><ws.element ws:tag="section"><ws.element ws:tag="h2">Failed-auth</ws.element></ws.element></ws.element>.',
-      "Do not call selector-based structural tools such as wrap-instance unless a focused list-instances result supplied the complete non-empty selector from the target through its page root. Prefer direct style, prop, or binding corrections when the structure is already sound.",
-      'Insert the complete account fragment with insert-fragment-verified and {"pagePath":"/account"} so persisted bindings are checked in the same call. Resolve every returned validity, scope, and reference finding before previewing. If post-commit verification reports an infrastructure failure, do not repeat the insertion; call verify-bindings separately for /account. Updating only a fixture variable\'s literal state does not require another binding verification.',
-      'Call verify-page-responsive once with path "/account" and the required desktop and mobile viewports; it starts or refreshes the session preview, captures both viewports in one browser session, and immediately runs the static page audit. Do not call preview.start, screenshot, screenshot.responsive, or audit separately. Do not run discovery, inspect-instance, mutate, or repeat binding verification after this terminal verification begins. The screenshots are the rendered evidence and the bundled audit is the static evidence. Do not claim the real provider flow works until redirects, session refresh, failure handling, and protected data access are exercised in its configured environment.',
-    ],
-  },
-  {
-    pattern:
-      /(?:upload|import|add|update|manage).*\bfonts?\b|\bfonts?\b.*(?:upload|import|add|update|manage)|font\s+assets?/i,
-    tools: [
-      "list-fonts",
-      "list-assets",
-      "upload-asset",
-      "upload-assets",
-      "update-asset",
-      "verify-font-assets",
+      "preview.start",
+      "screenshot",
       "audit",
     ],
     workflow: [
-      "The guide and MCP handshake already provide the required tool schemas. Do not call meta.index or meta.get-more-tools for this workflow.",
-      "Use upload-asset or upload-assets with the local filename, detected format, and complete family, style, and weight metadata. Use the returned asset ids directly; do not read a project snapshot to rediscover uploaded assets.",
-      "Use update-asset to correct font metadata without re-uploading the binary.",
-      "After font mutations, call verify-font-assets exactly once with every changed asset id. It refreshes the asset namespace and returns the persisted metadata in one bounded verification call; do not call refresh or get-asset separately.",
+      "Inspect the project's existing auth resources, variables, embeds, page settings, and agent instructions before choosing a provider workflow. Reuse that convention; do not add a second auth system implicitly.",
+      "Never place credentials, service-role keys, refresh tokens, private session values, or authenticated response bodies in project data, command output, screenshots, agent instructions, or error reports. Ask the user to configure secrets in the provider/server environment.",
+      "Model explicit signed-out, loading, signed-in, and failed-auth UI states with ordinary components and bindings. Use page basic auth only when the user asks for Webstudio's fixed login/password gate; it is not Supabase or Firebase authentication.",
+      "Use focused resources and variables for public client configuration and session-shaped data. Keep authorization enforcement and privileged provider calls server-side; a hidden Builder element is not an authorization boundary.",
+      "After creating or changing authentication expressions, call verify-bindings for the account page and resolve every validity, scope, and reference finding before previewing.",
+      "Preview and verify every auth state with non-secret fixture data, then audit the route. Do not claim the real provider flow works until redirects, session refresh, failure handling, and protected data access are exercised in its configured environment.",
     ],
   },
   {
     pattern:
       /(?:figma|wireframe|screenshot|design\s*(?:guide|input|file)|design\.md|inception).*(?:page|site|build|implement|recreate)|(?:build|implement|recreate).*(?:figma|wireframe|screenshot|design\s*(?:guide|input|file)|design\.md|inception)/i,
     tools: [
-      "inspect-design-context",
+      "list-pages",
+      "list-breakpoints",
+      "list-variables",
+      "list-design-tokens",
       "list-style-sources",
       "attach-design-token",
+      "list-assets",
       "components.search",
       "create-page",
-      "insert-fragment-verified",
+      "insert-fragment",
       "update-styles",
       "upload-asset",
-      "verify-page-responsive",
+      "preview.start",
+      "screenshot",
       "screenshot.diff",
+      "audit",
     ],
     workflow: [
-      "The guide and MCP handshake already provide the required tool schemas. Do not call meta.index or meta.get-more-tools for this workflow.",
       "Interpret the supplied design before mutating: identify page sections, responsive behavior, reusable patterns, assets, typography, color, spacing, and interaction states. Ask for missing source assets rather than inventing brand-critical content.",
-      "Before the first mutation, call inspect-design-context exactly once instead of calling list-pages, list-breakpoints, list-design-tokens, list-assets, or list-variables separately. Use one list-instances call only when needed to inspect a representative existing page pattern. Do not call get-styles: the bounded design context and optional focused instance result provide the reusable design-system evidence needed here without risking an oversized style dump. Reuse exact existing values, breakpoint ids, and patterns; do not create a parallel design system from approximate screenshot colors or spacing.",
-      "Call create-page exactly once and use its returned rootInstanceId as the insertion parent. Insert the complete semantic page in one fragment when practical, and use the insertion result's instanceIds for follow-up token attachments. Do not call list-instances after the first mutation to rediscover ids already returned by mutations.",
+      "Before the first mutation, call list-breakpoints and list-design-tokens. Reuse the returned breakpoint ids and attach relevant token ids to the new instances; do not continue with disconnected local copies when matching tokens exist.",
+      "Inspect the target project's pages, variables, design tokens, style sources, components, and assets. Reuse exact existing values and patterns; do not create a parallel design system from approximate screenshot colors or spacing.",
       "Attach existing design tokens to the new page's instances when they represent the intended typography, color, or other shared style. Reusing only the token's current raw value creates a disconnected local copy.",
-      "Create semantic editable structure with insert-fragment-verified using ws.element and literal text first; apply fixed CSS only through ws:style={css`...`}. Do not improvise component names, expression syntax, or object-valued style expressions in the fragment. Use assets for real imagery and text/controls for real content; do not flatten the design into one image or absolute-position every element.",
-      "Implement responsive behavior inside the project's actual breakpoint ranges.",
-      'Represent literal CSS values as {"type":"keyword","value":"..."}, including lengths such as "48px" and colors such as "#fff". Do not invent value types such as "length"; use {"type":"unit","value":48,"unit":"px"} only when numeric structure is specifically needed.',
-      "Each update-styles updates item is flat: include instanceId, property, value, and optional breakpoint directly on every item. Do not group properties under styles or declarations.",
-      'Call insert-fragment-verified exactly once with {"pagePath":"/summer"} so insertion and persisted binding verification share one bounded call; do not guess a page id or alternate input shape. Treat its verification result as the structural and binding checkpoint before attaching tokens or applying fixed style/page updates. If post-commit verification reports an infrastructure failure, do not repeat the insertion; call verify-bindings separately for /summer. Later fixed-value mutations do not require another binding verification. Finish them before visual verification, then call verify-page-responsive once with path "/summer" and exactly the two supplied viewports, 1440x900 and 390x844. It starts or refreshes preview automatically, captures both viewports, and immediately runs the static page audit. Do not call preview.start, screenshot, screenshot.responsive, or audit separately, and do not add exploratory or intermediate captures. Do not mutate, rediscover, or repeat binding verification after this terminal verification begins. The screenshots are the rendered evidence and the bundled audit is the static evidence. Visual similarity is evidence, not permission to discard accessibility or project conventions.',
+      "Create semantic editable structure with insert-fragment and known components. Use assets for real imagery and text/controls for real content; do not flatten the design into one image or absolute-position every element.",
+      "Implement responsive behavior inside the project's actual breakpoint ranges. Capture one familiar desktop and mobile viewport, plus one representative viewport for any distinct intermediate breakpoint behavior.",
+      "Run rendered audit and inspect screenshots after each bounded page section. Iterate on hierarchy, overflow, wrapping, image choice, spacing, and states; visual similarity is evidence, not permission to discard accessibility or project conventions.",
     ],
   },
   {
@@ -5780,36 +5045,6 @@ const metaGoalGuides = [
   },
 ] as const;
 
-const metaGuideDetailedInputSchemaTools = new Set(["update-styles"]);
-const metaGuideExampleTools = new Set(["upload-assets"]);
-
-const serializeMetaGuideTool = (
-  tool: ProjectSessionMcpTool,
-  includeHandshakeFields: boolean
-) =>
-  includeHandshakeFields
-    ? {
-        name: tool.name,
-        use: tool.description,
-        method: tool.annotations.method,
-        permit: tool.annotations.permit,
-        inputFields: tool.annotations.inputFields,
-        requiredInputFields: tool.annotations.requiredInputFields,
-        mcpExamples: tool.mcpExamples ?? [],
-        ...(metaGuideDetailedInputSchemaTools.has(tool.name)
-          ? { inputSchema: getDetailedProjectSessionMcpInputSchema(tool) }
-          : {}),
-      }
-    : {
-        name: tool.name,
-        ...(metaGuideExampleTools.has(tool.name)
-          ? { mcpExamples: tool.mcpExamples ?? [] }
-          : {}),
-        ...(metaGuideDetailedInputSchemaTools.has(tool.name)
-          ? { inputSchema: getDetailedProjectSessionMcpInputSchema(tool) }
-          : {}),
-      };
-
 const getMetaGuide = (
   brief: string,
   tools: readonly ProjectSessionMcpTool[],
@@ -5819,7 +5054,7 @@ const getMetaGuide = (
   const matches =
     goalGuide === undefined
       ? getMatchingTools(brief, tools).slice(0, 12)
-      : getExactToolSelection(goalGuide.tools, tools).tools;
+      : getExactTools(goalGuide.tools, tools);
   const canVerifyVisually =
     tools.some((tool) => tool.name === "preview.start") &&
     tools.some((tool) => tool.name === "screenshot");
@@ -5827,14 +5062,14 @@ const getMetaGuide = (
     (tool) => tool.name === "screenshot.diff"
   );
   return {
+    brief,
     delegatedAgentRule:
       "Do not spend the whole phase on discovery. If you are delegated/non-streaming and the parent asks for status within 30 seconds, run exactly one shortcut command such as webstudio meta.index or one explicit webstudio mcp single-op-call command, report its command/result, and wait before the next MCP command.",
     workflow: [
       ...(goalGuide?.workflow ?? []),
       "Use the fewest discovery calls needed for the immediate action.",
       "Call permissions or status only when the task depends on capabilities or local session freshness.",
-      matches.some((tool) => tool.annotations.localCapable) &&
-      matches.some((tool) => tool.name === "verify-font-assets") === false
+      matches.some((tool) => tool.annotations.localCapable)
         ? "Call refresh if cached namespaces may be stale."
         : undefined,
       "Use focused read tools to collect ids and current values.",
@@ -5845,16 +5080,16 @@ const getMetaGuide = (
         ? guidance.getVisionWorkflowSummary({ includeDiff: canDiffScreenshots })
         : undefined,
     ].filter(Boolean),
-    tools: matches.map((tool) =>
-      serializeMetaGuideTool(tool, goalGuide === undefined)
-    ),
-    ...(goalGuide !== undefined && "recipe" in goalGuide
-      ? { recipe: goalGuide.recipe }
-      : {}),
-    more:
-      goalGuide === undefined
-        ? "The MCP handshake provides top-level argument contracts and required fields, while this guide includes exact examples plus complete schemas for selected complex tools. Call meta.get-more-tools once with all needed tool names only when a nested input shape is not covered here or when you need server/local behavior that the guide does not cover."
-        : "The MCP client loads each named tool's exact argument contract before calling it. This guide includes a complete schema only for selected complex inputs. Call meta.get-more-tools once with all needed tool names only when the client does not expose a nested input shape or when you need server/local behavior that the guide does not cover.",
+    tools: matches.map((tool) => ({
+      name: tool.name,
+      use: tool.description,
+      method: tool.annotations.method,
+      permit: tool.annotations.permit,
+      inputFields: tool.annotations.inputFields,
+      requiredInputFields: tool.annotations.requiredInputFields,
+      mcpExamples: tool.mcpExamples ?? [],
+    })),
+    more: "Call meta.get_more_tools with the same brief for params, examples, namespaces, and server/local behavior.",
   };
 };
 
@@ -5888,13 +5123,6 @@ const designSystemWorkflowPhases: Record<
     allowedTools: readonly string[];
     commandPattern: string;
     fallbackCommandPattern?: string;
-    inputFile?: {
-      path: string;
-      contents: {
-        parentInstanceId: string;
-        fragment: string;
-      };
-    };
     constraints?: readonly string[];
     expectedReturn: readonly string[];
     nextPhase?: WorkflowPhaseName;
@@ -5931,19 +5159,11 @@ const designSystemWorkflowPhases: Record<
   "dry-run-section": {
     purpose:
       "Validate one tiny authored/styled JSX smoke fragment without committing.",
-    allowedTools: ["meta.get-more-tools", "components.get", "insert-fragment"],
+    allowedTools: ["meta.get_more_tools", "components.get", "insert-fragment"],
     commandPattern:
-      "node packages/cli/local.js insert-fragment --input-file .temp/design-system-section.json --dry-run",
-    inputFile: {
-      path: ".temp/design-system-section.json",
-      contents: {
-        parentInstanceId: "root-id",
-        fragment:
-          "<ws.element ws:tag='section' ws:style={css`padding: 24px;`}><ws.element ws:tag='h2'>Design System</ws.element></ws.element>",
-      },
-    },
+      'node packages/cli/local.js insert-fragment \'{"parentInstanceId":"root-id","fragment":"<ws.element ws:tag=\\"section\\" ws:style={css`padding: 24px;`}><ws.element ws:tag=\\"h2\\">Design System</ws.element></ws.element>"}\' --dry-run',
     constraints: [
-      "Save inputFile.contents at inputFile.path, replacing only root-id, then use the commandPattern as-is.",
+      "Use the commandPattern shape as-is, replacing only root-id.",
       "Keep the dry-run fragment tiny, ideally under 500 characters.",
       "Do not design the real page in this phase.",
       "Use ws.element tags or components confirmed by components.get; do not use deprecated $.Box, $.Heading, $.Paragraph, or $.Button.",
@@ -5961,7 +5181,7 @@ const designSystemWorkflowPhases: Record<
       "Commit exactly one previously validated authored/styled JSX section or one template root.",
     allowedTools: ["insert-fragment", "insert-component"],
     commandPattern:
-      "node packages/cli/local.js insert-fragment --input-file .temp/design-system-section.json",
+      'node packages/cli/local.js insert-fragment \'{"parentInstanceId":"root-id","fragment":"<ws.element ws:tag=\\"section\\">...</ws.element>"}\'',
     expectedReturn: ["committed version", "inserted root instance id"],
     nextPhase: "coverage-batch",
   },
@@ -6034,28 +5254,15 @@ const getWorkflowNext = (input: unknown) => {
   };
 };
 
-const getExactToolSelection = (
+const getExactTools = (
   toolNames: readonly string[],
   tools: readonly ProjectSessionMcpTool[]
 ) => {
   const toolByName = new Map(tools.map((tool) => [tool.name, tool]));
-  const selectedTools: ProjectSessionMcpTool[] = [];
-  const missingTools: string[] = [];
-  const includedToolNames = new Set<string>();
-  for (const requestedName of toolNames) {
-    const resolvedName = resolveToolName(requestedName);
-    const tool = toolByName.get(resolvedName);
-    if (tool === undefined) {
-      missingTools.push(requestedName);
-      continue;
-    }
-    if (includedToolNames.has(resolvedName)) {
-      continue;
-    }
-    includedToolNames.add(resolvedName);
-    selectedTools.push(tool);
-  }
-  return { tools: selectedTools, missingTools };
+  return toolNames.flatMap((name) => {
+    const tool = toolByName.get(name);
+    return tool === undefined ? [] : [tool];
+  });
 };
 
 const serializeToolDetails = (tool: ProjectSessionMcpTool) => ({
@@ -6140,10 +5347,7 @@ const getMoreTools = (
   toolNames: readonly string[],
   tools: readonly ProjectSessionMcpTool[]
 ) => {
-  const { tools: exactTools, missingTools } = getExactToolSelection(
-    toolNames,
-    tools
-  );
+  const exactTools = getExactTools(toolNames, tools);
   const matchedTools =
     toolNames.length > 0 ? exactTools : getMatchingTools(brief, tools);
   const limitedTools = matchedTools.slice(0, 12);
@@ -6152,7 +5356,9 @@ const getMoreTools = (
       'Prefer { tools: ["exact-tool-name"] } for precise details. Brief search is capped to avoid oversized responses; refine the brief or pass exact tool names when omittedCount is greater than 0.',
     brief,
     requestedTools: toolNames,
-    missingTools,
+    missingTools: toolNames.filter(
+      (name) => exactTools.some((tool) => tool.name === name) === false
+    ),
     count: matchedTools.length,
     omittedCount: Math.max(0, matchedTools.length - limitedTools.length),
     tools: limitedTools.map(serializeToolDetails),
@@ -6162,7 +5368,7 @@ const getMoreTools = (
 const readOnlySessionTools = new Set([
   "meta.index",
   "meta.guide",
-  "meta.get-more-tools",
+  "meta.get_more_tools",
   "status",
   "components.summary",
   "components.list",
@@ -6178,7 +5384,6 @@ const readOnlySessionTools = new Set([
 
 const toolAliases = new Map([
   ["get-component-coverage-plan", "components.coverage-plan"],
-  ["meta.get_more_tools", "meta.get-more-tools"],
 ]);
 
 const resolveToolName = (name: string) => toolAliases.get(name) ?? name;
@@ -6199,158 +5404,22 @@ export const isReadOnlyProjectSessionMcpToolCall = (
   );
 };
 
-const sdkScalarSchemaKeys = new Set([
-  "type",
-  "enum",
-  "const",
-  "format",
-  "default",
-  "minimum",
-  "maximum",
-  "exclusiveMinimum",
-  "exclusiveMaximum",
-  "multipleOf",
-  "minLength",
-  "maxLength",
-  "pattern",
-  "minItems",
-  "maxItems",
-  "uniqueItems",
-]);
-
-const sdkDetailedOptionalSchemaProperties = new Set([
-  "dryRun",
-  "confirmDestructive",
-  "confirmationToken",
-]);
-
-const getSdkSchemaProperty = (
-  value: InputJsonSchemaValue,
-  preserveRequiredShape = false
-): InputJsonSchemaValue => {
-  if (typeof value === "boolean") {
-    return value;
-  }
-  const result: InputJsonSchema = Object.fromEntries(
-    Object.entries(value).filter(([key]) => sdkScalarSchemaKeys.has(key))
-  );
-  if (value.items !== undefined) {
-    result.items = getSdkSchemaProperty(value.items, preserveRequiredShape);
-  }
-  if (
-    preserveRequiredShape &&
-    Array.isArray(value.required) &&
-    value.required.length > 0
-  ) {
-    result.required = value.required;
-    const required = new Set(value.required);
-    const properties = Object.fromEntries(
-      Object.entries(value.properties ?? {}).flatMap(([name, property]) =>
-        required.has(name)
-          ? [[name, getSdkSchemaProperty(property)] as const]
-          : []
-      )
-    );
-    if (Object.keys(properties).length > 0) {
-      result.properties = properties;
-    }
-  }
-  for (const key of ["allOf", "anyOf", "oneOf", "prefixItems"] as const) {
-    const branches = value[key];
-    if (Array.isArray(branches)) {
-      result[key] = branches.map((branch) =>
-        getSdkSchemaProperty(branch, preserveRequiredShape)
-      );
-    }
-  }
-  return result;
-};
-
-const getSdkInputSchema = (
-  schema: ProjectSessionMcpInputSchema,
-  includeOptionalProperties: boolean
-): ProjectSessionMcpInputSchema => {
-  const required = new Set(schema.required ?? []);
-  const properties = Object.fromEntries(
-    Object.entries(schema.properties ?? {}).flatMap(([name, value]) =>
-      required.has(name) ||
-      includeOptionalProperties ||
-      sdkDetailedOptionalSchemaProperties.has(name)
-        ? [
-            [
-              name,
-              required.has(name) ||
-              sdkDetailedOptionalSchemaProperties.has(name)
-                ? getSdkSchemaProperty(value)
-                : {},
-            ],
-          ]
-        : []
-    )
-  );
-  return {
-    type: "object",
-    additionalProperties:
-      schema.additionalProperties === undefined
-        ? false
-        : getSdkSchemaProperty(schema.additionalProperties),
-    ...(Object.keys(properties).length === 0 ? {} : { properties }),
-    ...(required.size === 0 ? {} : { required: [...required] }),
-    ...Object.fromEntries(
-      (["allOf", "anyOf", "oneOf"] as const).flatMap((key) => {
-        const branches = schema[key];
-        return Array.isArray(branches)
-          ? [
-              [
-                key,
-                branches.map((branch) => getSdkSchemaProperty(branch, true)),
-              ] as const,
-            ]
-          : [];
-      })
-    ),
-  };
-};
-
-const sdkDescribedToolNames = new Set([
-  "meta.index",
-  "meta.guide",
-  "meta.get-more-tools",
-  "workflow.next",
-  ...metaGoalGuides.flatMap(({ tools }) => tools),
-]);
-
-const getSdkToolAnnotations = (tool: ProjectSessionMcpTool) => {
-  const readOnly = isReadOnlyProjectSessionMcpTool(tool);
-  const annotations: NonNullable<SdkTool["annotations"]> = {
-    ...(readOnly ? { readOnlyHint: true } : {}),
-    ...(readOnly === false && tool.annotations.requiresConfirm === false
-      ? { destructiveHint: false }
-      : {}),
-    ...(tool.annotations.serverOnly ? {} : { openWorldHint: false }),
-  };
-  return Object.keys(annotations).length === 0 ? undefined : annotations;
-};
-
-// Keep output contracts, complete input guidance, and Webstudio operation
-// metadata for local validation, generated documentation, and focused
-// discovery. The startup instructions and described discovery tools route
-// models to meta.guide, which returns descriptions for the relevant operation
-// set. Do not resend descriptions for every operation in every MCP handshake.
-const toSdkTool = (tool: ProjectSessionMcpTool): SdkTool => {
-  const annotations = getSdkToolAnnotations(tool);
-  return {
-    name: tool.name,
-    ...(sdkDescribedToolNames.has(tool.name)
-      ? { description: tool.description }
-      : {}),
-    inputSchema: getSdkInputSchema(
-      tool.inputSchema,
-      sdkDescribedToolNames.has(tool.name)
-    ),
-    ...(annotations === undefined ? {} : { annotations }),
-  };
-};
+const toSdkTool = (tool: ProjectSessionMcpTool): SdkTool => ({
+  name: tool.name,
+  description: tool.description,
+  inputSchema: tool.inputSchema,
+  ...(tool.outputSchema === undefined
+    ? {}
+    : { outputSchema: tool.outputSchema }),
+  annotations: {
+    readOnlyHint: isReadOnlyProjectSessionMcpTool(tool),
+    destructiveHint: tool.annotations.requiresConfirm,
+    openWorldHint: tool.annotations.serverOnly,
+  },
+  _meta: {
+    webstudio: tool.annotations,
+  },
+});
 
 export const listProjectSessionMcpResources =
   (): ProjectSessionMcpResource[] => [
@@ -6431,27 +5500,6 @@ const getDestructivePlanSummary = (
   };
 };
 
-const maxMcpStyleKeyResults = 20;
-
-const compactMcpOperationResult = (result: unknown) => {
-  if (isPlainRecord(result) === false) {
-    return result;
-  }
-  const styleKeys = result.styleKeys;
-  if (
-    Array.isArray(styleKeys) === false ||
-    styleKeys.length <= maxMcpStyleKeyResults
-  ) {
-    return result;
-  }
-  return {
-    ...result,
-    styleKeys: styleKeys.slice(0, maxMcpStyleKeyResults),
-    styleKeyCount: styleKeys.length,
-    styleKeysTruncated: true,
-  };
-};
-
 const toCallResult = (
   envelope: Parameters<typeof serializeProjectSessionMeta>[0],
   options: {
@@ -6474,12 +5522,12 @@ const toCallResult = (
     options.error === undefined
       ? {
           ok: true,
-          data: compactMcpOperationResult(envelope.result),
+          data: envelope.result,
           meta,
         }
       : {
           ok: false,
-          data: compactMcpOperationResult(envelope.result),
+          data: envelope.result,
           error: options.error,
           meta,
         };
@@ -6711,12 +5759,8 @@ const getScreenshotInput = (input: unknown): ProjectSessionScreenshotInput => {
     }
   }
   const source = input.source === undefined ? undefined : input.source;
-  if (source !== undefined && isProjectSessionPreviewSource(source) === false) {
+  if (source !== undefined && source !== "local" && source !== "session") {
     throw new Error("screenshot source must be local or session.");
-  }
-  const mode = input.mode === undefined ? undefined : input.mode;
-  if (mode !== undefined && isProjectSessionPreviewMode(mode) === false) {
-    throw new Error("screenshot mode must be iterative or production.");
   }
   const host = typeof input.host === "string" ? input.host : undefined;
   if (host !== undefined && host.length === 0) {
@@ -6753,11 +5797,10 @@ const getScreenshotInput = (input: unknown): ProjectSessionScreenshotInput => {
       host !== undefined ||
       port !== undefined ||
       source !== undefined ||
-      mode !== undefined ||
       imageDomains !== undefined
     ) {
       throw new Error(
-        "screenshot baseUrl uses an existing preview/site and cannot be combined with host, port, source, mode, or imageDomains."
+        "screenshot baseUrl uses an existing preview/site and cannot be combined with host, port, source, or imageDomains."
       );
     }
   }
@@ -6770,7 +5813,6 @@ const getScreenshotInput = (input: unknown): ProjectSessionScreenshotInput => {
     port,
     imageDomains,
     source,
-    mode,
     viewport: { width, height },
     fullPage: input.fullPage === true,
     includeImageMetrics: input.includeImageMetrics === true,
@@ -6784,39 +5826,6 @@ const getScreenshotInput = (input: unknown): ProjectSessionScreenshotInput => {
     waitForTimeout,
     timeout,
   };
-};
-
-const getResponsiveScreenshotInputs = (
-  input: unknown
-): ProjectSessionScreenshotInput[] => {
-  if (isRecord(input) === false) {
-    throw new Error("screenshot.responsive input must be an object.");
-  }
-  if (
-    Array.isArray(input.viewports) === false ||
-    input.viewports.length === 0 ||
-    input.viewports.length > 8
-  ) {
-    throw new Error(
-      "screenshot.responsive input.viewports must contain between 1 and 8 viewport objects."
-    );
-  }
-  return input.viewports.map((viewport, index) => {
-    if (
-      isRecord(viewport) === false ||
-      typeof viewport.width !== "number" ||
-      Number.isInteger(viewport.width) === false ||
-      viewport.width <= 0 ||
-      typeof viewport.height !== "number" ||
-      Number.isInteger(viewport.height) === false ||
-      viewport.height <= 0
-    ) {
-      throw new Error(
-        `screenshot.responsive input.viewports.${index} must contain positive integer width and height.`
-      );
-    }
-    return getScreenshotInput({ ...input, viewport });
-  });
 };
 
 const isValidScreenshotDiffVisualExpectation = (
@@ -6978,17 +5987,13 @@ const getPreviewInput = (input: unknown): ProjectSessionPreviewInput => {
   const port = typeof input.port === "number" ? input.port : undefined;
   if (
     port !== undefined &&
-    (Number.isInteger(port) === false || port < 0 || port > 65535)
+    (Number.isInteger(port) === false || port <= 0 || port > 65535)
   ) {
-    throw new Error("preview port must be an integer between 0 and 65535.");
+    throw new Error("preview port must be an integer between 1 and 65535.");
   }
   const source = input.source === undefined ? undefined : input.source;
-  if (source !== undefined && isProjectSessionPreviewSource(source) === false) {
+  if (source !== undefined && source !== "local" && source !== "session") {
     throw new Error("preview source must be local or session.");
-  }
-  const mode = input.mode === undefined ? undefined : input.mode;
-  if (mode !== undefined && isProjectSessionPreviewMode(mode) === false) {
-    throw new Error("preview mode must be iterative or production.");
   }
   const imageDomains = input.imageDomains;
   if (
@@ -7008,7 +6013,6 @@ const getPreviewInput = (input: unknown): ProjectSessionPreviewInput => {
     host,
     port,
     source,
-    mode,
     imageDomains,
   };
 };
@@ -7069,7 +6073,6 @@ type ProjectSessionMcpCoreOptions<Command extends string> = {
     manifest: RenderedAuditArtifactManifest
   ) => Promise<string>;
   restorePoints?: ProjectSessionRestorePointHandlers;
-  onProjectSessionChange?: () => void;
 };
 
 type ProjectSessionRestorePointHandlers = {
@@ -7101,7 +6104,6 @@ export const createProjectSessionMcpCore = <Command extends string = string>({
   reportToolProgress,
   storeRenderedAuditArtifacts,
   restorePoints,
-  onProjectSessionChange,
 }: ProjectSessionMcpCoreOptions<Command>) => {
   let session: ReturnType<CreateProjectSession> | undefined;
   let pendingCheckpoint: ProjectSessionMcpCheckpoint | undefined;
@@ -7120,7 +6122,6 @@ export const createProjectSessionMcpCore = <Command extends string = string>({
       includeImport: importProject !== undefined,
       includeDownloadAsset: downloadAsset !== undefined,
       includeScreenshot: captureScreenshot !== undefined,
-      includeResponsiveScreenshot: capturePageScreenshots !== undefined,
       includeScreenshotDiff: diffScreenshots !== undefined,
       includeInstallOcr: installOcr !== undefined,
       includePreview:
@@ -7139,63 +6140,6 @@ export const createProjectSessionMcpCore = <Command extends string = string>({
       command: command as Command,
       input,
       dryRun: false,
-    });
-  };
-  const callContextBundle = async ({
-    toolName,
-    operationId,
-    calls,
-    getResult,
-  }: {
-    toolName: string;
-    operationId: string;
-    calls: readonly {
-      command: string;
-      input: Record<string, unknown>;
-      resultKey?: string;
-    }[];
-    getResult: (results: ReadonlyMap<string, unknown>) => unknown;
-  }) => {
-    const envelopes: Array<{
-      command: string;
-      envelope: ProjectSessionEnvelope;
-    }> = [];
-    for (const { command, input, resultKey } of calls) {
-      if (operationByCommand.has(command as Command) === false) {
-        throw new Error(`${toolName} requires the ${command} operation.`);
-      }
-      envelopes.push({
-        command: resultKey ?? command,
-        envelope: await executeOperation({
-          command: command as Command,
-          input,
-          dryRun: false,
-        }),
-      });
-    }
-    const lastEnvelope = envelopes.at(-1)?.envelope;
-    if (lastEnvelope === undefined) {
-      throw new Error(`${toolName} produced no results.`);
-    }
-    const resultByCommand = new Map(
-      envelopes.map(({ command, envelope }) => [command, envelope.result])
-    );
-    const mergeNamespaces = (
-      key: keyof ProjectSessionEnvelope["namespaces"]
-    ) => [
-      ...new Set(envelopes.flatMap(({ envelope }) => envelope.namespaces[key])),
-    ];
-    return toCallResult({
-      ...lastEnvelope,
-      operationId,
-      result: getResult(resultByCommand),
-      namespaces: {
-        read: mergeNamespaces("read"),
-        write: mergeNamespaces("write"),
-        invalidated: mergeNamespaces("invalidated"),
-        missing: mergeNamespaces("missing"),
-      },
-      diagnostics: envelopes.flatMap(({ envelope }) => envelope.diagnostics),
     });
   };
   return {
@@ -7390,89 +6334,13 @@ export const createProjectSessionMcpCore = <Command extends string = string>({
           getMetaGuide(getBrief(input, "meta.guide"), listTools(), guidance)
         );
       }
-      if (name === "inspect-auth-context") {
-        if (isPlainRecord(input) === false || Object.keys(input).length > 0) {
-          throw new Error("inspect-auth-context does not accept input.");
-        }
-        return await callContextBundle({
-          toolName: name,
-          operationId: "workflow.auth-context",
-          calls: [
-            { command: "get-project-settings", input: {} },
-            { command: "list-pages", input: { limit: 50 } },
-            { command: "list-resources", input: { limit: 50 } },
-            { command: "list-variables", input: { limit: 50 } },
-          ],
-          getResult: (resultByCommand) => ({
-            projectSettings: resultByCommand.get("get-project-settings"),
-            pages: resultByCommand.get("list-pages"),
-            resources: resultByCommand.get("list-resources"),
-            variables: resultByCommand.get("list-variables"),
-          }),
-        });
-      }
-      if (name === "inspect-design-context") {
-        if (isPlainRecord(input) === false || Object.keys(input).length > 0) {
-          throw new Error("inspect-design-context does not accept input.");
-        }
-        return await callContextBundle({
-          toolName: name,
-          operationId: "workflow.design-context",
-          calls: [
-            { command: "list-pages", input: { limit: 50 } },
-            { command: "list-breakpoints", input: {} },
-            { command: "list-design-tokens", input: { limit: 50 } },
-            { command: "list-assets", input: { limit: 50 } },
-            { command: "list-variables", input: { limit: 50 } },
-          ],
-          getResult: (resultByCommand) => ({
-            pages: resultByCommand.get("list-pages"),
-            breakpoints: resultByCommand.get("list-breakpoints"),
-            designTokens: resultByCommand.get("list-design-tokens"),
-            assets: resultByCommand.get("list-assets"),
-            variables: resultByCommand.get("list-variables"),
-          }),
-        });
-      }
-      if (name === "verify-font-assets") {
-        if (
-          isPlainRecord(input) === false ||
-          Array.isArray(input.assetIds) === false ||
-          input.assetIds.length === 0 ||
-          input.assetIds.length > 50 ||
-          input.assetIds.some(
-            (assetId) => typeof assetId !== "string" || assetId.length === 0
-          )
-        ) {
-          throw new Error(
-            "verify-font-assets requires assetIds with 1 to 50 non-empty strings."
-          );
-        }
-        const assetIds = [...new Set(input.assetIds as string[])];
-        const projectSession = getSession();
-        await projectSession.initialize();
-        await projectSession.refresh(["assets"]);
-        onProjectSessionChange?.();
-        return await callContextBundle({
-          toolName: name,
-          operationId: "workflow.verify-font-assets",
-          calls: assetIds.map((assetId) => ({
-            command: "get-asset",
-            resultKey: assetId,
-            input: { assetId },
-          })),
-          getResult: (resultByAssetId) => ({
-            assets: assetIds.map((assetId) => resultByAssetId.get(assetId)),
-          }),
-        });
-      }
       if (name === "workflow.next") {
         return toCheckpointedMetaResult(name, getWorkflowNext(input));
       }
-      if (name === "meta.get-more-tools") {
+      if (name === "meta.get_more_tools") {
         return toMetaResult(
           getMoreTools(
-            getBrief(input, "meta.get-more-tools"),
+            getBrief(input, "meta.get_more_tools"),
             getToolNamesInput(input),
             listTools()
           )
@@ -7542,15 +6410,11 @@ export const createProjectSessionMcpCore = <Command extends string = string>({
       if (name === "refresh") {
         const session = getSession();
         await session.initialize();
-        const result = await session.refresh(getRefreshNamespaces(input));
-        onProjectSessionChange?.();
-        return toCallResult(result);
+        return toCallResult(await session.refresh(getRefreshNamespaces(input)));
       }
       if (name === "reset-session") {
         const session = getSession();
-        const result = await session.reset();
-        onProjectSessionChange?.();
-        return toCallResult(result);
+        return toCallResult(await session.reset());
       }
       if (name === "create-restore-point" && restorePoints !== undefined) {
         return toMetaResult(
@@ -7589,73 +6453,13 @@ export const createProjectSessionMcpCore = <Command extends string = string>({
         return toMetaResult(await downloadAsset(getDownloadAssetInput(input)));
       }
       if (name === "screenshot" && captureScreenshot !== undefined) {
-        const screenshotInput = getScreenshotInput(input);
-        try {
-          return toMetaResult(
-            await captureScreenshot(screenshotInput, {
-              report: (message) => {
-                reportToolProgress?.(message);
-              },
-            })
-          );
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          throw Object.assign(
-            new Error(
-              `Screenshot capture failed: ${message}. Check preview.status, verify that the route loads, and retry with an installed browser or explicit browserPath.`
-            ),
-            { code: "SCREENSHOT_CAPTURE_FAILED", cause: error }
-          );
-        }
-      }
-      if (
-        name === "verify-page-responsive" &&
-        capturePageScreenshots !== undefined
-      ) {
-        const auditOperation = operationByCommand.get("audit" as Command);
-        if (auditOperation === undefined) {
-          throw new Error(
-            "verify-page-responsive requires the audit operation."
-          );
-        }
-        const screenshotInputs = getResponsiveScreenshotInputs(input);
-        const pagePath = screenshotInputs[0]?.path;
-        if (typeof pagePath !== "string" || pagePath.length === 0) {
-          throw new Error(
-            "verify-page-responsive requires a generated route path."
-          );
-        }
-        const screenshots = await capturePageScreenshots(screenshotInputs, {
-          report: (message) => {
-            reportToolProgress?.(message);
-          },
-        });
-        const auditEnvelope = await executeOperation({
-          command: "audit" as Command,
-          input: getNormalizedOperationInput(auditOperation, { pagePath }),
-          dryRun: false,
-        });
-        return toCallResult({
-          ...auditEnvelope,
-          operationId: "workflow.verify-page-responsive",
-          result: { screenshots, audit: auditEnvelope.result },
-        });
-      }
-      if (
-        name === "screenshot.responsive" &&
-        capturePageScreenshots !== undefined
-      ) {
-        return toMetaResult({
-          screenshots: await capturePageScreenshots(
-            getResponsiveScreenshotInputs(input),
-            {
-              report: (message) => {
-                reportToolProgress?.(message);
-              },
-            }
-          ),
-        });
+        return toMetaResult(
+          await captureScreenshot(getScreenshotInput(input), {
+            report: (message) => {
+              reportToolProgress?.(message);
+            },
+          })
+        );
       }
       if (name === "screenshot.diff" && diffScreenshots !== undefined) {
         return toMetaResult(
@@ -7680,137 +6484,6 @@ export const createProjectSessionMcpCore = <Command extends string = string>({
       }
       if (name === "preview.stop" && stopPreview !== undefined) {
         return toMetaResult(await stopPreview());
-      }
-      if (name === "insert-fragment-verified") {
-        const insertionOperation = operationByCommand.get(
-          "insert-fragment" as Command
-        );
-        const verificationOperation = operationByCommand.get(
-          "verify-bindings" as Command
-        );
-        if (
-          insertionOperation === undefined ||
-          verificationOperation === undefined
-        ) {
-          throw new Error(
-            "insert-fragment-verified requires insert-fragment and verify-bindings operations."
-          );
-        }
-        const transportInput = getToolCallInput(input);
-        if (
-          isPlainRecord(transportInput.input) === false ||
-          typeof transportInput.input.pagePath !== "string"
-        ) {
-          throw new Error(
-            "insert-fragment-verified requires a pagePath for persisted binding verification."
-          );
-        }
-        const insertionInput = getNormalizedOperationInput(
-          insertionOperation,
-          await getInsertFragmentInput(transportInput.input)
-        );
-        const verificationInput = getNormalizedOperationInput(
-          verificationOperation,
-          { pagePath: transportInput.input.pagePath, limit: 200 }
-        );
-        const compositeDryRun = dryRun || transportInput.dryRun;
-        const insertionEnvelope = await executeOperation({
-          command: "insert-fragment" as Command,
-          input: insertionInput,
-          dryRun: compositeDryRun,
-        });
-        if (compositeDryRun) {
-          return toCallResult(
-            {
-              ...insertionEnvelope,
-              operationId: "workflow.insert-fragment-verified",
-              result: {
-                insertion: insertionEnvelope.result,
-                verification: {
-                  status: "skipped",
-                  reason: "Verification runs only after a committed insertion.",
-                },
-              },
-            },
-            {
-              next: [
-                "Review the planned insertion. Commit it with the same input and dryRun omitted before relying on binding verification.",
-              ],
-            }
-          );
-        }
-        let verificationEnvelope: ProjectSessionEnvelope;
-        try {
-          verificationEnvelope = await executeOperation({
-            command: "verify-bindings" as Command,
-            input: verificationInput,
-            dryRun: false,
-          });
-        } catch {
-          return toCallResult(
-            {
-              ...insertionEnvelope,
-              operationId: "workflow.insert-fragment-verified",
-              result: {
-                insertion: insertionEnvelope.result,
-                verification: { status: "failed-after-commit" },
-              },
-            },
-            {
-              error: {
-                code: "POST_COMMIT_VERIFICATION_FAILED",
-                message:
-                  "The fragment was committed, but binding verification could not run. Do not retry the insertion; call verify-bindings separately for the same pagePath.",
-              },
-              next: [
-                "Do not retry insert-fragment-verified. Call verify-bindings separately for the same pagePath and resolve every finding.",
-              ],
-            }
-          );
-        }
-        const mergeNamespaces = (
-          key: keyof ProjectSessionEnvelope["namespaces"]
-        ) => [
-          ...new Set([
-            ...insertionEnvelope.namespaces[key],
-            ...verificationEnvelope.namespaces[key],
-          ]),
-        ];
-        return toCallResult(
-          {
-            ...verificationEnvelope,
-            operationId: "workflow.insert-fragment-verified",
-            result: {
-              insertion: insertionEnvelope.result,
-              verification: verificationEnvelope.result,
-            },
-            state: {
-              ...verificationEnvelope.state,
-              committed: insertionEnvelope.state.committed,
-            },
-            namespaces: {
-              read: mergeNamespaces("read"),
-              write: mergeNamespaces("write"),
-              invalidated: mergeNamespaces("invalidated"),
-              missing: mergeNamespaces("missing"),
-            },
-            diagnostics: [
-              ...insertionEnvelope.diagnostics,
-              ...verificationEnvelope.diagnostics,
-            ],
-          },
-          {
-            next: [
-              "Resolve every binding verification finding before previewing.",
-              "Before reporting completion, run audit for the changed page or project.",
-              ...(startPreview !== undefined && captureScreenshot !== undefined
-                ? [
-                    "For visual changes, start a session preview and capture desktop and mobile screenshots before reporting completion.",
-                  ]
-                : []),
-            ],
-          }
-        );
       }
       const operation = operationByCommand.get(name as Command);
       if (operation === undefined) {
@@ -8075,7 +6748,7 @@ const toToolErrorResult = (
     error instanceof z.ZodError
       ? getZodValidationIssues(error, inputSchema)
       : getValidationIssues(error);
-  const baseMessage =
+  const message =
     code === "PROJECT_SESSION_BUSY"
       ? projectSessionBusyMessage
       : error instanceof z.ZodError
@@ -8083,10 +6756,6 @@ const toToolErrorResult = (
         : error instanceof Error
           ? error.message
           : String(error);
-  const message =
-    validationIssues === undefined || validationIssues.length === 0
-      ? baseMessage
-      : formatValidationErrorMessage(baseMessage, validationIssues);
   const structuredContent = {
     ok: false as const,
     error: {
@@ -8122,15 +6791,12 @@ export const createProjectSessionMcpServer = async <
   reportLog,
   storeRenderedAuditArtifacts,
   restorePoints,
-  onProjectSessionChange,
   onInitialized,
-  toolNameFormat = "canonical",
   toolHeartbeatIntervalMs = 10_000,
 }: Omit<ProjectSessionMcpCoreOptions<Command>, "reportToolProgress"> & {
   getErrorCode?: McpErrorCodeResolver;
   reportLog?: (level: McpLogLevel, message: string) => void;
   onInitialized?: (clientName: string | undefined) => void;
-  toolNameFormat?: "canonical" | "underscores";
   toolHeartbeatIntervalMs?: number;
 }) => {
   const server = new Server(
@@ -8167,32 +6833,10 @@ export const createProjectSessionMcpServer = async <
     guidance,
     storeRenderedAuditArtifacts,
     restorePoints,
-    onProjectSessionChange,
     reportToolProgress: (message) => {
       sendLog("info", message);
     },
   });
-  const exposedTools = core.listTools().map((tool) => ({
-    ...tool,
-    name:
-      toolNameFormat === "underscores"
-        ? tool.name.replace(/[^a-zA-Z0-9_]/g, "_")
-        : tool.name,
-  }));
-  const canonicalToolNameByExposedName = new Map<string, string>();
-  for (const [index, tool] of core.listTools().entries()) {
-    const exposedName = exposedTools[index]?.name;
-    if (exposedName === undefined) {
-      continue;
-    }
-    const existingName = canonicalToolNameByExposedName.get(exposedName);
-    if (existingName !== undefined && existingName !== tool.name) {
-      throw new Error(
-        `MCP tool names ${existingName} and ${tool.name} both map to ${exposedName}.`
-      );
-    }
-    canonicalToolNameByExposedName.set(exposedName, tool.name);
-  }
 
   server.oninitialized = () => {
     onInitialized?.(server.getClientVersion()?.name);
@@ -8203,7 +6847,7 @@ export const createProjectSessionMcpServer = async <
   };
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: exposedTools.map(toSdkTool),
+    tools: core.listTools().map(toSdkTool),
   }));
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
@@ -8246,8 +6890,7 @@ export const createProjectSessionMcpServer = async <
 
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const params = getRequestParams(request);
-    const exposedName = typeof params.name === "string" ? params.name : "";
-    const name = canonicalToolNameByExposedName.get(exposedName) ?? exposedName;
+    const name = typeof params.name === "string" ? params.name : "";
     const { input, dryRun } = getToolCallInput(params.arguments ?? {});
     const startedAt = Date.now();
     sendLog("info", `tool ${name} started${dryRun ? " (dry run)" : ""}`);

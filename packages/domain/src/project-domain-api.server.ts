@@ -128,7 +128,7 @@ export const getProjectPublishJob = async (
 ) => {
   const result = await context.postgrest.client
     .from("Build")
-    .select("id, version, createdAt, updatedAt, deployment, publishStatus")
+    .select("id, version, createdAt, deployment")
     .eq("projectId", input.projectId)
     .eq("id", input.jobId)
     .maybeSingle();
@@ -142,27 +142,16 @@ export const getProjectPublishJob = async (
   }
 
   const deployment = parseDeployment(publishJob.deployment);
-  const status =
-    deployment === undefined
-      ? "removed"
-      : publishJob.publishStatus === "PUBLISHED"
-        ? "success"
-        : publishJob.publishStatus === "FAILED"
-          ? "failed"
-          : "pending";
   return {
     id: publishJob.id,
     version: publishJob.version,
-    status,
+    status: deployment === undefined ? "removed" : "success",
     domains:
       deployment !== undefined && deployment.destination !== "static"
         ? deployment.domains
         : [],
     createdAt: publishJob.createdAt,
-    completedAt:
-      status === "success" || status === "failed"
-        ? publishJob.updatedAt
-        : undefined,
+    completedAt: publishJob.createdAt,
   };
 };
 
@@ -208,6 +197,7 @@ export const publishProject = async (
     builderOrigin: env.BUILDER_ORIGIN,
     githubSha: env.GITHUB_SHA,
     buildId: build.id,
+    domains: domains, // Added by m8jj to send domain info to publisher
     branchName: env.GITHUB_REF_NAME,
     destination: "saas",
     logProjectName: `${project.title} - ${project.id}`,

@@ -67,7 +67,7 @@ const checkHtmlContentModel: PrePublishAuditCheck = ({
     if (isValid === false) {
       findings.push({
         ruleId: "html-content-model",
-        severity: "warning",
+        severity: "error",
         message: message ?? "The page contains invalid element nesting.",
         location: {
           pageId: page.id,
@@ -133,10 +133,8 @@ export const formatPrePublishAuditFinding = (
   finding: PrePublishAuditFinding
 ) => {
   const { pageName, pagePath } = finding.location;
-  const prefix =
-    finding.severity === "error" ? "Cannot publish" : "Publish warning";
   if (pageName === undefined || pagePath === undefined) {
-    return `${prefix}: ${finding.message}`;
+    return `Cannot publish: ${finding.message}`;
   }
-  return `${prefix} for "${pageName}" (${pagePath}): ${finding.message}`;
+  return `Cannot publish "${pageName}" (${pagePath}): ${finding.message}`;
 };

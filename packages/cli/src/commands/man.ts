@@ -157,7 +157,6 @@ const taskRecipeUseCases = {
     "Read project settings",
     "Update project settings",
     "Update marketplace product",
-    "Submit marketplace product",
     "List redirects",
     "Create redirect",
     "Update redirect",
@@ -374,17 +373,16 @@ const inputFileShapes = {
   ],
 };
 
-const formatJsonCodeBlock = (value: unknown) =>
-  ["```json", JSON.stringify(value, undefined, 2), "```"].join("\n");
-
 const inputFileShapeIndex = Object.entries(inputFileShapes)
-  .map(([name, value]) => `${name}:\n\n${formatJsonCodeBlock(value)}`)
+  .map(([name, value]) => `${name}:\n\n${JSON.stringify(value, undefined, 2)}`)
   .join("\n\n");
 
 const mcpArgumentExampleIndex = Object.entries(mcpArgumentExamples)
   .map(
     ([name, examples]) =>
-      `### ${name}\n\n${examples.map(formatJsonCodeBlock).join("\n\n")}`
+      `### ${name}\n\n${examples
+        .map((example) => JSON.stringify(example, undefined, 2))
+        .join("\n\n")}`
   )
   .join("\n\n");
 
@@ -474,9 +472,6 @@ const apiCommandsByArea = {
   projectQuality: cliCommandMetadata
     .filter(({ cliCommand }) => cliCommand === "audit")
     .map(({ cliCommand }) => cliCommand),
-  assetsAndIndexes: cliCommandMetadata
-    .filter(({ cliCommand }) => cliCommand.includes("asset"))
-    .map(({ cliCommand }) => cliCommand),
   publishAndDomains: cliCommandMetadata
     .filter(
       ({ cliCommand }) =>
@@ -488,7 +483,6 @@ const apiCommandsByArea = {
       [
         "get-marketplace-product",
         "update-marketplace-product",
-        "submit-marketplace-product",
         "set-redirects",
       ].includes(cliCommand)
     )
@@ -594,7 +588,7 @@ const allManual = [
   "- `resources/list`",
   "- `meta.index`",
   "- `meta.guide`",
-  "- `meta.get-more-tools`",
+  "- `meta.get_more_tools`",
   "- `webstudio://project/tools`",
   "- `webstudio://project/components`",
   "",
@@ -693,7 +687,7 @@ const topics = {
             "resources/list",
             "meta.index",
             "meta.guide",
-            "meta.get-more-tools",
+            "meta.get_more_tools",
           ],
           resources: [
             "webstudio://project/status",
@@ -776,7 +770,7 @@ const topics = {
           "resources/list",
           "meta.index",
           "meta.guide",
-          "meta.get-more-tools",
+          "meta.get_more_tools",
         ],
         resources: [
           "webstudio://project/status",

@@ -2,8 +2,6 @@ import { z } from "zod";
 import { computed } from "nanostores";
 import {
   forwardRef,
-  lazy,
-  Suspense,
   useEffect,
   useId,
   useImperativeHandle,
@@ -13,10 +11,6 @@ import {
 } from "react";
 import { useStore } from "@nanostores/react";
 import {
-  encodeDataVariableId,
-  isAssetsResource as isAssetsResourceRecord,
-  SYSTEM_VARIABLE_ID,
-  systemParameter,
   type DataSources,
   type Resource,
   type DataSource,
@@ -24,10 +18,13 @@ import {
   type PageTemplate,
 } from "@webstudio-is/sdk";
 import {
+  encodeDataVariableId,
   generateObjectExpression,
   isLiteralExpression,
-  parseExpressionObject,
-} from "@webstudio-is/expression";
+  parseObjectExpression,
+  SYSTEM_VARIABLE_ID,
+  systemParameter,
+} from "@webstudio-is/sdk";
 import {
   serializeValue,
   sitemapResourceUrl,
@@ -41,7 +38,6 @@ import {
   InputErrorsTooltip,
   InputField,
   Label,
-  ProChip,
   Select,
   SmallIconButton,
   Text,
@@ -51,40 +47,35 @@ import {
 } from "@webstudio-is/design-system";
 import { TrashIcon, InfoCircleIcon, PlusIcon } from "@webstudio-is/icons";
 import { humanizeString } from "~/shared/string-utils";
+import { $variableValuesByInstanceSelector } from "~/shared/nano-states";
+import { $dataSources } from "~/shared/sync/data-stores";
+import { $resources } from "~/shared/sync/data-stores";
 import {
-  $permissions,
-  $selectedInstance,
-  $selectedInstancePathWithRoot,
-  $selectedPage,
-  $variableValuesByInstanceSelector,
-  getInstanceKey,
-} from "~/shared/nano-states";
-import { $dataSources, $resources } from "~/shared/sync/data-stores";
-import { evaluateExpressionWithinScope } from "~/builder/shared/binding-popover";
-import { BindableExpressionControl } from "~/builder/shared/bindable-expression";
+  BindingControl,
+  BindingPopover,
+  evaluateExpressionWithinScope,
+} from "~/builder/shared/binding-popover";
 import { ExpressionEditor } from "~/builder/shared/expression-editor";
 import {
   EditorDialog,
   EditorDialogButton,
   EditorDialogControl,
 } from "~/shared/code-editor-base";
+import {
+  $selectedInstance,
+  $selectedInstancePathWithRoot,
+  $selectedPage,
+  getInstanceKey,
+} from "~/shared/nano-states";
+import type { InstancePath } from "@webstudio-is/project-build/runtime";
 import { executeRuntimeMutation } from "~/shared/instance-utils/data";
-import { invalidateAssets } from "~/shared/resources";
-import { onNextTransactionComplete } from "~/shared/sync/project-queue";
 import {
   createResourceFieldsFromFormData,
   validateResourceBodyExpression,
   validateResourceUrlExpression,
-  type InstancePath,
   type ResourceBodyInputType,
 } from "@webstudio-is/project-build/runtime";
 import { parseCurl, type CurlRequest } from "./curl";
-import { CenteredPanelMessage, Row } from "./shared";
-const AssetQueryForm = lazy(() =>
-  import("./asset-query-form").then(({ AssetQueryForm }) => ({
-    default: AssetQueryForm,
-  }))
-);
 
 export const UrlField = ({
   scope,
@@ -127,59 +118,59 @@ export const UrlField = ({
         </Tooltip>
       </Label>
       <input type="hidden" readOnly={true} name="url" value={value} />
-      <BindableExpressionControl
-        expression={value}
-        value={String(evaluateExpressionWithinScope(value, scope))}
-        bound={isLiteralExpression(value) === false}
-        allowBindingOverwrite={false}
-        scope={scope}
-        aliases={aliases}
-        onChangeValue={(value) => onChange(JSON.stringify(value))}
-        onChangeExpression={onChange}
-        onRemove={(value) => onChange(JSON.stringify(value))}
-        renderControl={({ value, readOnly, onChangeValue }) => (
-          <InputErrorsTooltip errors={error ? [error] : undefined}>
-            <TextArea
-              ref={ref}
-              name="url-validator"
-              id={urlId}
-              rows={1}
-              grow={true}
-              disabled={readOnly}
-              color={error ? "error" : undefined}
-              value={value}
-              onChange={(value) => {
-                const curl = parseCurl(value);
-                if (curl) {
-                  onCurlPaste(curl);
+      <BindingControl>
+        <InputErrorsTooltip errors={error ? [error] : undefined}>
+          <TextArea
+            ref={ref}
+            name="url-validator"
+            id={urlId}
+            rows={1}
+            grow={true}
+            // expressions with variables cannot be edited
+            disabled={isLiteralExpression(value) === false}
+            color={error ? "error" : undefined}
+            value={String(evaluateExpressionWithinScope(value, scope))}
+            onChange={(value) => {
+              const curl = parseCurl(value);
+              if (curl) {
+                onCurlPaste(curl);
+                return;
+              }
+              try {
+                const url = new URL(value);
+                if (url.searchParams.size > 0) {
+                  const searchParams: Resource["searchParams"] = [];
+                  for (const [name, value] of url.searchParams) {
+                    searchParams.push({ name, value: JSON.stringify(value) });
+                  }
+                  // remove all search params from url
+                  url.search = "";
+                  // update text value as string literal
+                  onChange(JSON.stringify(url.href), searchParams);
                   return;
                 }
-                try {
-                  const url = new URL(value);
-                  if (url.searchParams.size > 0) {
-                    const searchParams: Resource["searchParams"] = [];
-                    for (const [name, value] of url.searchParams) {
-                      searchParams.push({ name, value: JSON.stringify(value) });
-                    }
-                    // remove all search params from url
-                    url.search = "";
-                    // update text value as string literal
-                    onChange(JSON.stringify(url.href), searchParams);
-                    return;
-                  }
-                } catch {
-                  // serialize without changes when url is invalid
-                }
-                onChangeValue(value);
-              }}
-              onBlur={(event) => event.currentTarget.checkValidity()}
-              onInvalid={(event) =>
-                setError(event.currentTarget.validationMessage)
+              } catch {
+                // serialize without changes when url is invalid
               }
-            />
-          </InputErrorsTooltip>
-        )}
-      />
+              onChange(JSON.stringify(value));
+            }}
+            onBlur={(event) => event.currentTarget.checkValidity()}
+            onInvalid={(event) =>
+              setError(event.currentTarget.validationMessage)
+            }
+          />
+        </InputErrorsTooltip>
+        <BindingPopover
+          scope={scope}
+          aliases={aliases}
+          variant={isLiteralExpression(value) ? "default" : "bound"}
+          value={value}
+          onChange={onChange}
+          onRemove={(evaluatedValue) =>
+            onChange(JSON.stringify(evaluatedValue))
+          }
+        />
+      </BindingControl>
     </Grid>
   );
 };
@@ -205,12 +196,9 @@ export const MethodField = ({
   );
 };
 
-type ExpressionPair = Resource["headers"][number];
-
-const ExpressionNameValuePair = ({
+const SearchParamPair = ({
   aliases,
   scope,
-  kind,
   name,
   value,
   onChange,
@@ -218,14 +206,15 @@ const ExpressionNameValuePair = ({
 }: {
   aliases: Map<string, string>;
   scope: Record<string, unknown>;
-  kind: "header" | "search param";
   name: string;
   value: string;
   onChange: (name: string, value: string) => void;
   onDelete: () => void;
 }) => {
   const evaluatedValue = evaluateExpressionWithinScope(value, scope);
-  const isValueString = typeof evaluatedValue === "string";
+  // expressions with variables or objects cannot be edited from input
+  const isValueUnboundString =
+    isLiteralExpression(value) && typeof evaluatedValue === "string";
   return (
     <Grid
       gap={2}
@@ -236,42 +225,35 @@ const ExpressionNameValuePair = ({
         // autofocus only new fields
         autoFocus={name === ""}
         placeholder="Name"
-        name={kind === "header" ? "header-name" : "search-param-name"}
+        name="search-param-name"
         value={name}
         onChange={(event) => onChange(event.target.value, value)}
       />
-      <input
-        type="hidden"
-        readOnly={true}
-        name={kind === "header" ? "header-value" : "search-param-value"}
-        value={value}
-      />
-      <BindableExpressionControl
-        expression={value}
-        value={serializeValue(evaluatedValue)}
-        bound={isLiteralExpression(value) === false}
-        allowBindingOverwrite={false}
-        scope={scope}
-        aliases={aliases}
-        onChangeValue={(value) => onChange(name, JSON.stringify(value))}
-        onChangeExpression={(value) => onChange(name, value)}
-        onRemove={(value) => onChange(name, JSON.stringify(value))}
-        renderControl={({ value, readOnly, onChangeValue }) => (
-          <InputField
-            placeholder="Value"
-            name={
-              kind === "header"
-                ? "header-value-validator"
-                : "search-param-value-literal"
-            }
-            disabled={readOnly || !isValueString}
-            value={value}
-            onChange={(event) => onChangeValue(event.target.value)}
-          />
-        )}
-      />
+      <input type="hidden" name="search-param-value" value={value} />
+      <BindingControl>
+        <InputField
+          placeholder="Value"
+          name="search-param-value-literal"
+          disabled={!isValueUnboundString}
+          value={serializeValue(evaluatedValue)}
+          // update text value as string literal
+          onChange={(event) =>
+            onChange(name, JSON.stringify(event.target.value))
+          }
+        />
+        <BindingPopover
+          scope={scope}
+          aliases={aliases}
+          variant={isLiteralExpression(value) ? "default" : "bound"}
+          value={value}
+          onChange={(newValue) => onChange(name, newValue)}
+          onRemove={(evaluatedValue) =>
+            onChange(name, JSON.stringify(evaluatedValue))
+          }
+        />
+      </BindingControl>
       <SmallIconButton
-        aria-label={`Delete ${kind}`}
+        aria-label="Delete search param"
         variant="destructive"
         icon={<TrashIcon />}
         onClick={onDelete}
@@ -280,53 +262,57 @@ const ExpressionNameValuePair = ({
   );
 };
 
-const ExpressionPairs = ({
+export const SearchParams = ({
   scope,
   aliases,
-  kind,
-  values,
+  searchParams,
   onChange,
 }: {
   scope: Record<string, unknown>;
   aliases: Map<string, string>;
-  kind: "header" | "search param";
-  values: ExpressionPair[];
-  onChange: (values: ExpressionPair[]) => void;
+  searchParams: NonNullable<Resource["searchParams"]>;
+  onChange: (searchParams: NonNullable<Resource["searchParams"]>) => void;
 }) => {
-  const label = kind === "header" ? "Headers" : "Search params";
   return (
     <Grid gap={1}>
       <Flex justify="between" align="center">
-        <Label>{label}</Label>
+        <Label>Search params</Label>
         <SmallIconButton
-          aria-label={`Add another ${kind}`}
+          aria-label="Add another search param"
           icon={<PlusIcon />}
-          // Use an empty string expression as the default value.
-          onClick={() => onChange([...values, { name: "", value: `""` }])}
+          onClick={() => {
+            // use empty string expression as default
+            const newSearchParams = [
+              ...searchParams,
+              { name: "", value: `""` },
+            ];
+            onChange(newSearchParams);
+          }}
         />
       </Flex>
       <Grid gap={2}>
-        {values.map((item, index) => (
-          <ExpressionNameValuePair
+        {searchParams.map((searchParam, index) => (
+          <SearchParamPair
             key={index}
             scope={scope}
             aliases={aliases}
-            kind={kind}
-            name={item.name}
-            value={item.value}
+            name={searchParam.name}
+            value={searchParam.value}
             onChange={(name, value) => {
-              const next = [...values];
-              next[index] = { name, value };
-              onChange(next);
+              const newSearchParams = [...searchParams];
+              newSearchParams[index] = { name, value };
+              onChange(newSearchParams);
             }}
-            onDelete={() =>
-              onChange(values.filter((_, position) => position !== index))
-            }
+            onDelete={() => {
+              const newSearchParams = [...searchParams];
+              newSearchParams.splice(index, 1);
+              onChange(newSearchParams);
+            }}
           />
         ))}
-        {values.length === 0 && (
+        {searchParams.length === 0 && (
           <Text color="subtle" align="center">
-            No {label.toLowerCase()}
+            No search params
           </Text>
         )}
       </Grid>
@@ -334,25 +320,126 @@ const ExpressionPairs = ({
   );
 };
 
-export const SearchParams = ({
-  searchParams,
-  ...props
+const HeaderPair = ({
+  aliases,
+  scope,
+  name,
+  value,
+  onChange,
+  onDelete,
 }: {
-  scope: Record<string, unknown>;
   aliases: Map<string, string>;
-  searchParams: NonNullable<Resource["searchParams"]>;
-  onChange: (searchParams: NonNullable<Resource["searchParams"]>) => void;
-}) => <ExpressionPairs {...props} kind="search param" values={searchParams} />;
+  scope: Record<string, unknown>;
+  name: string;
+  value: string;
+  onChange: (name: string, value: string) => void;
+  onDelete: () => void;
+}) => {
+  const evaluatedValue = evaluateExpressionWithinScope(value, scope);
+  // expressions with variables or objects cannot be edited from input
+  const isValueUnboundString =
+    isLiteralExpression(value) && typeof evaluatedValue === "string";
+  return (
+    <Grid
+      gap={2}
+      align="center"
+      css={{ gridTemplateColumns: `120px 1fr min-content` }}
+    >
+      <InputField
+        // autofocus only new fields
+        autoFocus={name === ""}
+        placeholder="Name"
+        name="header-name"
+        value={name}
+        onChange={(event) => onChange(event.target.value, value)}
+      />
+      <input hidden={true} readOnly={true} name="header-value" value={value} />
+      <BindingControl>
+        <InputField
+          placeholder="Value"
+          name="header-value-validator"
+          disabled={!isValueUnboundString}
+          value={serializeValue(evaluatedValue)}
+          // update text value as string literal
+          onChange={(event) =>
+            onChange(name, JSON.stringify(event.target.value))
+          }
+        />
+        <BindingPopover
+          scope={scope}
+          aliases={aliases}
+          variant={isLiteralExpression(value) ? "default" : "bound"}
+          value={value}
+          onChange={(newValue) => onChange(name, newValue)}
+          onRemove={(evaluatedValue) =>
+            onChange(name, JSON.stringify(evaluatedValue))
+          }
+        />
+      </BindingControl>
+      <SmallIconButton
+        aria-label="Delete header"
+        variant="destructive"
+        icon={<TrashIcon />}
+        onClick={onDelete}
+      />
+    </Grid>
+  );
+};
 
 export const Headers = ({
+  scope,
+  aliases,
   headers,
-  ...props
+  onChange,
 }: {
-  aliases: Map<string, string>;
   scope: Record<string, unknown>;
+  aliases: Map<string, string>;
   headers: Resource["headers"];
   onChange: (headers: Resource["headers"]) => void;
-}) => <ExpressionPairs {...props} kind="header" values={headers} />;
+}) => {
+  return (
+    <Grid gap={1}>
+      <Flex justify="between" align="center">
+        <Label>Headers</Label>
+        <SmallIconButton
+          aria-label="Add another search param"
+          icon={<PlusIcon />}
+          onClick={() => {
+            // use empty string expression as default
+            const newHeaders = [...headers, { name: "", value: `""` }];
+            onChange(newHeaders);
+          }}
+        />
+      </Flex>
+      <Grid gap={2}>
+        {headers.map((header, index) => (
+          <HeaderPair
+            key={index}
+            scope={scope}
+            aliases={aliases}
+            name={header.name}
+            value={header.value}
+            onChange={(name, value) => {
+              const newHeaders = [...headers];
+              newHeaders[index] = { name, value };
+              onChange(newHeaders);
+            }}
+            onDelete={() => {
+              const newHeaders = [...headers];
+              newHeaders.splice(index, 1);
+              onChange(newHeaders);
+            }}
+          />
+        ))}
+        {headers.length === 0 && (
+          <Text color="subtle" align="center">
+            No headers
+          </Text>
+        )}
+      </Grid>
+    </Grid>
+  );
+};
 
 const CacheMaxAge = ({
   value,
@@ -510,7 +597,7 @@ export const useResourceScope = ({ variable }: { variable?: DataSource }) => {
 };
 
 type PanelApi = {
-  save: (formData: FormData) => void | false;
+  save: (formData: FormData) => void;
 };
 
 type BodyType = ResourceBodyInputType;
@@ -556,16 +643,6 @@ const BodyField = ({
       typeof evaluatedValue === "object" && evaluatedValue !== null;
     onChange(newBody, isBodyObject ? "json" : bodyType);
   };
-  const displayedValue =
-    bodyType === "json"
-      ? isBodyLiteral
-        ? value
-        : (JSON.stringify(
-            evaluateExpressionWithinScope(value, scope),
-            null,
-            2
-          ) ?? "")
-      : String(evaluateExpressionWithinScope(value, scope) ?? "");
 
   return (
     <Grid gap={1}>
@@ -601,54 +678,57 @@ const BodyField = ({
           setBodyError(event.currentTarget.validationMessage)
         }
       />
-      <BindableExpressionControl
-        expression={value}
-        value={displayedValue}
-        bound={isBodyLiteral === false}
-        allowBindingOverwrite={false}
-        scope={scope}
-        aliases={aliases}
-        parseValue={(value) =>
-          bodyType === "json" ? evaluateExpressionWithinScope(value, {}) : value
-        }
-        onChangeValue={(value) =>
-          updateBody(bodyType === "json" ? value : JSON.stringify(value))
-        }
-        onChangeExpression={(value) => {
-          updateBody(value);
-          setIsBodyLiteral(isLiteralExpression(value));
-        }}
-        onRemove={(value) => {
-          updateBody(JSON.stringify(value));
-          setIsBodyLiteral(true);
-        }}
-        renderControl={({ value, readOnly, onChangeValue }) => (
-          <InputErrorsTooltip errors={bodyError ? [bodyError] : undefined}>
-            {bodyType === "json" ? (
-              // wrap with div to position error tooltip
-              <div>
-                <ExpressionEditor
-                  color={bodyError ? "error" : undefined}
-                  readOnly={readOnly}
-                  value={value}
-                  onChange={onChangeValue}
-                  onChangeComplete={() => bodyRef.current?.checkValidity()}
-                />
-              </div>
-            ) : (
-              <TextArea
-                autoGrow={true}
-                maxRows={10}
-                disabled={readOnly}
+      <BindingControl>
+        <InputErrorsTooltip errors={bodyError ? [bodyError] : undefined}>
+          {bodyType === "json" ? (
+            // wrap with div to position error tooltip
+            <div>
+              <ExpressionEditor
                 color={bodyError ? "error" : undefined}
-                value={value}
-                onChange={onChangeValue}
-                onBlur={() => bodyRef.current?.checkValidity()}
+                // expressions with variables cannot be edited
+                readOnly={isBodyLiteral === false}
+                value={
+                  isBodyLiteral
+                    ? value
+                    : (JSON.stringify(
+                        evaluateExpressionWithinScope(value, scope),
+                        null,
+                        2
+                      ) ?? "")
+                }
+                onChange={updateBody}
+                onChangeComplete={() => bodyRef.current?.checkValidity()}
               />
-            )}
-          </InputErrorsTooltip>
-        )}
-      />
+            </div>
+          ) : (
+            <TextArea
+              autoGrow={true}
+              maxRows={10}
+              // expressions with variables cannot be edited
+              disabled={isBodyLiteral === false}
+              color={bodyError ? "error" : undefined}
+              value={String(evaluateExpressionWithinScope(value, scope) ?? "")}
+              // update text value as string literal
+              onChange={(newValue) => updateBody(JSON.stringify(newValue))}
+              onBlur={() => bodyRef.current?.checkValidity()}
+            />
+          )}
+        </InputErrorsTooltip>
+        <BindingPopover
+          scope={scope}
+          aliases={aliases}
+          variant={isBodyLiteral ? "default" : "bound"}
+          value={value}
+          onChange={(value) => {
+            updateBody(value);
+            setIsBodyLiteral(isLiteralExpression(value));
+          }}
+          onRemove={(evaluatedValue) => {
+            updateBody(JSON.stringify(evaluatedValue));
+            setIsBodyLiteral(true);
+          }}
+        />
+      </BindingControl>
     </Grid>
   );
 };
@@ -741,99 +821,87 @@ export const ResourceForm = forwardRef<
 
   return (
     <>
-      <Row>
-        <MethodField value={method} onChange={setMethod} />
-      </Row>
-      <Row>
-        <UrlField
-          scope={scope}
-          aliases={aliases}
-          value={url}
-          onChange={(urlExpression, searchParams) => {
-            setUrl(urlExpression);
-            if (searchParams) {
-              setSearchParams((prev) => [...prev, ...searchParams]);
-            }
-          }}
-          onCurlPaste={(curl) => {
-            // update all feilds when curl is paste into url field
-            setMethod(curl.method);
-            setUrl(JSON.stringify(curl.url));
-            setSearchParams(
-              (curl.searchParams ?? []).map((header) => ({
-                name: header.name,
-                value: JSON.stringify(header.value),
-              }))
-            );
-            const parsedHeaders = parseHeaders(
-              curl.headers.map((header) => ({
-                name: header.name,
-                value: JSON.stringify(header.value),
-              }))
-            );
-            setMaxAge(parsedHeaders.maxAge);
-            setHeaders(parsedHeaders.headers);
-            setBodyType(parsedHeaders.bodyType);
-            setBody(JSON.stringify(curl.body));
-          }}
-        />
-      </Row>
-      <Row>
-        <SearchParams
-          scope={scope}
-          aliases={aliases}
-          searchParams={searchParams}
-          onChange={setSearchParams}
-        />
-      </Row>
-      <Row>
-        <CacheMaxAge
-          value={maxAge}
-          onChange={(newMaxAge) => {
-            setMaxAge(newMaxAge);
-            // reset header
-            setHeaders((headers) =>
-              headers.filter(({ name }) => !isCacheControl(name))
-            );
-          }}
-        />
-      </Row>
-      <Row>
-        <Headers
-          scope={scope}
-          aliases={aliases}
-          headers={headers}
-          onChange={(newHeaders) => {
-            // reset dedicated fields
-            if (newHeaders.some(({ name }) => isCacheControl(name))) {
-              setMaxAge(undefined);
-            }
-            if (newHeaders.some(({ name }) => isContentType(name))) {
-              setBodyType(undefined);
-            }
-            setHeaders(newHeaders);
-          }}
-        />
-      </Row>
+      <MethodField value={method} onChange={setMethod} />
+      <UrlField
+        scope={scope}
+        aliases={aliases}
+        value={url}
+        onChange={(urlExpression, searchParams) => {
+          setUrl(urlExpression);
+          if (searchParams) {
+            setSearchParams((prev) => [...prev, ...searchParams]);
+          }
+        }}
+        onCurlPaste={(curl) => {
+          // update all feilds when curl is paste into url field
+          setMethod(curl.method);
+          setUrl(JSON.stringify(curl.url));
+          setSearchParams(
+            (curl.searchParams ?? []).map((header) => ({
+              name: header.name,
+              value: JSON.stringify(header.value),
+            }))
+          );
+          const parsedHeaders = parseHeaders(
+            curl.headers.map((header) => ({
+              name: header.name,
+              value: JSON.stringify(header.value),
+            }))
+          );
+          setMaxAge(parsedHeaders.maxAge);
+          setHeaders(parsedHeaders.headers);
+          setBodyType(parsedHeaders.bodyType);
+          setBody(JSON.stringify(curl.body));
+        }}
+      />
+      <SearchParams
+        scope={scope}
+        aliases={aliases}
+        searchParams={searchParams}
+        onChange={setSearchParams}
+      />
+      <CacheMaxAge
+        value={maxAge}
+        onChange={(newMaxAge) => {
+          setMaxAge(newMaxAge);
+          // reset header
+          setHeaders((headers) =>
+            headers.filter(({ name }) => !isCacheControl(name))
+          );
+        }}
+      />
+      <Headers
+        scope={scope}
+        aliases={aliases}
+        headers={headers}
+        onChange={(newHeaders) => {
+          // reset dedicated fields
+          if (newHeaders.some(({ name }) => isCacheControl(name))) {
+            setMaxAge(undefined);
+          }
+          if (newHeaders.some(({ name }) => isContentType(name))) {
+            setBodyType(undefined);
+          }
+          setHeaders(newHeaders);
+        }}
+      />
       {method !== "get" && (
-        <Row>
-          <BodyField
-            scope={scope}
-            aliases={aliases}
-            value={body ?? ""}
-            bodyType={bodyType}
-            onChange={(newBody, newBodyType) => {
-              setBodyType(newBodyType);
-              // reset header
-              if (newBodyType) {
-                setHeaders((headers) =>
-                  headers.filter(({ name }) => !isContentType(name))
-                );
-              }
-              setBody(newBody);
-            }}
-          />
-        </Row>
+        <BodyField
+          scope={scope}
+          aliases={aliases}
+          value={body ?? ""}
+          bodyType={bodyType}
+          onChange={(newBody, newBodyType) => {
+            setBodyType(newBodyType);
+            // reset header
+            if (newBodyType) {
+              setHeaders((headers) =>
+                headers.filter(({ name }) => !isContentType(name))
+              );
+            }
+            setBody(newBody);
+          }}
+        />
       )}
     </>
   );
@@ -842,29 +910,15 @@ ResourceForm.displayName = "ResourceForm";
 
 export const SystemResourceForm = forwardRef<
   undefined | PanelApi,
-  {
-    variable?: DataSource;
-    querySourceContainer?: Element | null;
-    onQueryActiveChange?: (active: boolean) => void;
-  }
->(({ variable, querySourceContainer, onQueryActiveChange }, ref) => {
-  const { scope, aliases } = useResourceScope({ variable });
+  { variable?: DataSource }
+>(({ variable }, ref) => {
   const resources = useStore($resources);
-  const { allowDynamicData } = useStore($permissions);
 
   const resource =
     variable?.type === "resource"
       ? resources.get(variable.resourceId)
       : undefined;
-  const isStoredAssetQuery =
-    resource !== undefined && isAssetsResourceRecord(resource);
 
-  const assetsLocalResource = {
-    label: "Assets",
-    value: JSON.stringify(assetsResourceUrl),
-    description:
-      "Loads all project assets by default, with optional filters, sorting, pagination, and file content.",
-  };
   const localResources = [
     {
       label: "Sitemap",
@@ -872,35 +926,29 @@ export const SystemResourceForm = forwardRef<
       description: "Resource that loads the sitemap data of the current site.",
     },
     {
-      label: "Current date",
+      label: "Current Date",
       value: JSON.stringify(currentDateResourceUrl),
       description:
         "Provides current date information (year, month, day) normalized to midnight UTC. Time components are set to 00:00:00 to prevent React hydration errors.",
     },
-    assetsLocalResource,
+    {
+      label: "Assets",
+      value: JSON.stringify(assetsResourceUrl),
+      description:
+        "Resource that loads the list of assets of the current project.",
+    },
   ];
 
   const [localResource, setLocalResource] = useState(() => {
-    if (isStoredAssetQuery) {
-      return assetsLocalResource;
-    }
     return (
       localResources.find(
         (localResource) => localResource.value === resource?.url
       ) ?? localResources[0]
     );
   });
-  const isAssetsResource =
-    localResource.value === JSON.stringify(assetsResourceUrl);
-  useEffect(() => {
-    onQueryActiveChange?.(isAssetsResource);
-    return () => onQueryActiveChange?.(false);
-  }, [isAssetsResource, onQueryActiveChange]);
+
   useImperativeHandle(ref, () => ({
     save: (formData) => {
-      if (formData.get("asset-query-valid") === "false") {
-        return false;
-      }
       // preserve existing instance scope when edit
       const scopeInstanceId =
         variable?.scopeInstanceId ?? $selectedInstance.get()?.id;
@@ -911,7 +959,7 @@ export const SystemResourceForm = forwardRef<
         control: "system",
         formData,
       });
-      const result = executeRuntimeMutation({
+      executeRuntimeMutation({
         id: "resources.upsert",
         input: {
           resourceId: resource?.id,
@@ -921,11 +969,6 @@ export const SystemResourceForm = forwardRef<
           dataSourceName: resourceFields.name,
         },
       });
-      if (isAssetsResource && result !== undefined) {
-        // The initial preview can finish before the updated build reaches the
-        // server. Refresh again once merged-database planning sees the save.
-        onNextTransactionComplete(invalidateAssets);
-      }
     },
   }));
 
@@ -933,51 +976,25 @@ export const SystemResourceForm = forwardRef<
 
   return (
     <>
-      <input
-        type="hidden"
-        name="method"
-        value={isAssetsResource ? "post" : "get"}
-      />
+      <input type="hidden" name="method" value="get" />
       <input type="hidden" name="url" value={localResource.value} />
-      <Row>
-        <Grid gap={1}>
-          <Label htmlFor={resourceId}>Resource</Label>
-          <Select
-            options={localResources}
-            getLabel={(option) => (
-              <Flex direction="row" gap="2" align="center">
-                {option.label}
-                {option.value === assetsLocalResource.value &&
-                  allowDynamicData === false && <ProChip>Pro</ProChip>}
-              </Flex>
-            )}
-            getValue={(option) => option.value}
-            getDescription={(option) => {
-              return (
-                <Box css={{ width: theme.spacing[25] }}>
-                  {option?.description}
-                </Box>
-              );
-            }}
-            value={localResource}
-            onChange={setLocalResource}
-          />
-        </Grid>
-      </Row>
-      {isAssetsResource && (
-        <Suspense
-          fallback={
-            <CenteredPanelMessage>Loading query editor…</CenteredPanelMessage>
-          }
-        >
-          <AssetQueryForm
-            resource={resource}
-            scope={scope}
-            aliases={aliases}
-            sourceContainer={querySourceContainer}
-          />
-        </Suspense>
-      )}
+      <Flex direction="column" css={{ gap: theme.spacing[3] }}>
+        <Label htmlFor={resourceId}>Resource</Label>
+        <Select
+          options={localResources}
+          getLabel={(option) => option.label}
+          getValue={(option) => option.value}
+          getDescription={(option) => {
+            return (
+              <Box css={{ width: theme.spacing[25] }}>
+                {option?.description}
+              </Box>
+            );
+          }}
+          value={localResource}
+          onChange={setLocalResource}
+        />
+      </Flex>
     </>
   );
 });
@@ -1005,8 +1022,8 @@ export const GraphqlResourceForm = forwardRef<
   const [maxAge, setMaxAge] = useState(parsedHeaders.maxAge);
   const [headers, setHeaders] = useState(parsedHeaders.headers);
 
-  const [bodyExpressions] = useState(
-    () => parseExpressionObject(resource?.body ?? "") ?? new Map()
+  const [bodyExpressions] = useState(() =>
+    parseObjectExpression(resource?.body ?? "")
   );
   const queryId = useId();
   const [query, setQuery] = useState(
@@ -1081,147 +1098,129 @@ export const GraphqlResourceForm = forwardRef<
         )}
       />
 
-      <Row>
-        <UrlField
-          scope={scope}
-          aliases={aliases}
-          value={url}
-          onChange={setUrl}
-          onCurlPaste={(curl) => {
-            // update all feilds when curl is paste into url field
-            setUrl(JSON.stringify(curl.url));
-            const parsedHeaders = parseHeaders(
-              curl.headers.map((header) => ({
-                name: header.name,
-                value: JSON.stringify(header.value),
-              }))
-            );
-            setMaxAge(parsedHeaders.maxAge);
-            setHeaders(parsedHeaders.headers);
-            const body = zGraphqlBody.safeParse(curl.body);
-            if (body.success) {
-              setQuery(body.data.query);
-              setVariables(JSON.stringify(body.data.variables, null, 2));
-            }
-          }}
-        />
-      </Row>
+      <UrlField
+        scope={scope}
+        aliases={aliases}
+        value={url}
+        onChange={setUrl}
+        onCurlPaste={(curl) => {
+          // update all feilds when curl is paste into url field
+          setUrl(JSON.stringify(curl.url));
+          const parsedHeaders = parseHeaders(
+            curl.headers.map((header) => ({
+              name: header.name,
+              value: JSON.stringify(header.value),
+            }))
+          );
+          setMaxAge(parsedHeaders.maxAge);
+          setHeaders(parsedHeaders.headers);
+          const body = zGraphqlBody.safeParse(curl.body);
+          if (body.success) {
+            setQuery(body.data.query);
+            setVariables(JSON.stringify(body.data.variables, null, 2));
+          }
+        }}
+      />
 
-      <Row>
-        <Grid gap={1}>
-          <Label htmlFor={queryId}>Query</Label>
-          <EditorDialogControl>
-            <TextArea
-              name="query"
-              id={queryId}
-              rows={3}
-              maxRows={10}
-              autoGrow={true}
-              value={query}
-              onChange={setQuery}
-            />
-            <EditorDialog
-              title="GraphQL Query"
-              content={
-                <TextArea grow={true} value={query} onChange={setQuery} />
-              }
-            >
-              <EditorDialogButton />
-            </EditorDialog>
-          </EditorDialogControl>
-        </Grid>
-      </Row>
-
-      <Row>
-        <Grid gap={1}>
-          <Label>GraphQL variables</Label>
-          {/* use invisible text input to reflect expression editor in form
-            type=hidden does not emit invalid event */}
-          <input
-            ref={variablesRef}
-            style={{ display: "none" }}
-            type="text"
-            name="variables"
-            data-color={variablesError ? "error" : undefined}
-            value={variables}
-            onChange={() => {}}
-            onInvalid={(event) =>
-              setVariablesError(event.currentTarget.validationMessage)
-            }
+      <Grid gap={1}>
+        <Label htmlFor={queryId}>Query</Label>
+        <EditorDialogControl>
+          <TextArea
+            name="query"
+            id={queryId}
+            rows={3}
+            maxRows={10}
+            autoGrow={true}
+            value={query}
+            onChange={setQuery}
           />
-          <BindableExpressionControl
-            expression={variables}
-            value={
-              isVariablesLiteral
-                ? variables
-                : (JSON.stringify(
-                    evaluateExpressionWithinScope(variables, scope),
-                    null,
-                    2
-                  ) ?? "")
-            }
-            bound={isVariablesLiteral === false}
-            allowBindingOverwrite={false}
+          <EditorDialog
+            title="GraphQL Query"
+            content={<TextArea grow={true} value={query} onChange={setQuery} />}
+          >
+            <EditorDialogButton />
+          </EditorDialog>
+        </EditorDialogControl>
+      </Grid>
+
+      <Grid gap={1}>
+        <Label>GraphQL variables</Label>
+        {/* use invisible text input to reflect expression editor in form
+            type=hidden does not emit invalid event */}
+        <input
+          ref={variablesRef}
+          style={{ display: "none" }}
+          type="text"
+          name="variables"
+          data-color={variablesError ? "error" : undefined}
+          value={variables}
+          onChange={() => {}}
+          onInvalid={(event) =>
+            setVariablesError(event.currentTarget.validationMessage)
+          }
+        />
+        <BindingControl>
+          <InputErrorsTooltip
+            errors={variablesError ? [variablesError] : undefined}
+          >
+            {/* wrap with div to position error tooltip */}
+            <div>
+              <ExpressionEditor
+                color={variablesError ? "error" : undefined}
+                readOnly={isVariablesLiteral === false}
+                value={
+                  isVariablesLiteral
+                    ? variables
+                    : (JSON.stringify(
+                        evaluateExpressionWithinScope(variables, scope),
+                        null,
+                        2
+                      ) ?? "")
+                }
+                onChange={setVariables}
+                onChangeComplete={() => variablesRef.current?.checkValidity()}
+              />
+            </div>
+          </InputErrorsTooltip>
+          <BindingPopover
             scope={scope}
             aliases={aliases}
-            parseValue={(value) => evaluateExpressionWithinScope(value, {})}
-            onChangeValue={setVariables}
-            onChangeExpression={(value) => {
+            variant={isVariablesLiteral ? "default" : "bound"}
+            value={variables}
+            onChange={(value) => {
               setVariables(value);
               setIsVariablesLiteral(isLiteralExpression(value));
             }}
-            onRemove={(value) => {
-              setVariables(JSON.stringify(value));
+            onRemove={(evaluatedValue) => {
+              setVariables(JSON.stringify(evaluatedValue));
               setIsVariablesLiteral(true);
             }}
-            renderControl={({ value, readOnly, onChangeValue }) => (
-              <InputErrorsTooltip
-                errors={variablesError ? [variablesError] : undefined}
-              >
-                {/* wrap with div to position error tooltip */}
-                <div>
-                  <ExpressionEditor
-                    color={variablesError ? "error" : undefined}
-                    readOnly={readOnly}
-                    value={value}
-                    onChange={onChangeValue}
-                    onChangeComplete={() =>
-                      variablesRef.current?.checkValidity()
-                    }
-                  />
-                </div>
-              </InputErrorsTooltip>
-            )}
           />
-        </Grid>
-      </Row>
+        </BindingControl>
+      </Grid>
 
-      <Row>
-        <CacheMaxAge
-          value={maxAge}
-          onChange={(newMaxAge) => {
-            setMaxAge(newMaxAge);
-            setHeaders((headers) =>
-              headers.filter(({ name }) => !isCacheControl(name))
-            );
-          }}
-        />
-      </Row>
+      <CacheMaxAge
+        value={maxAge}
+        onChange={(newMaxAge) => {
+          setMaxAge(newMaxAge);
+          setHeaders((headers) =>
+            headers.filter(({ name }) => !isCacheControl(name))
+          );
+        }}
+      />
 
-      <Row>
-        <Headers
-          scope={scope}
-          aliases={aliases}
-          headers={headers}
-          onChange={(newHeaders) => {
-            // reset dedicated fields
-            if (newHeaders.some(({ name }) => isCacheControl(name))) {
-              setMaxAge(undefined);
-            }
-            setHeaders(newHeaders);
-          }}
-        />
-      </Row>
+      <Headers
+        scope={scope}
+        aliases={aliases}
+        headers={headers}
+        onChange={(newHeaders) => {
+          // reset dedicated fields
+          if (newHeaders.some(({ name }) => isCacheControl(name))) {
+            setMaxAge(undefined);
+          }
+          setHeaders(newHeaders);
+        }}
+      />
     </>
   );
 });

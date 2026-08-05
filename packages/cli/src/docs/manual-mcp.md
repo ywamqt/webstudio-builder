@@ -4,28 +4,33 @@
 
 ## Startup
 
-If you are already working with a shell-capable agent, it can use the local CLI
-directly. Native MCP client registration is optional. Give the editable Builder
-share link only when the trusted agent asks for it. Treat the share link as a
-credential: do not include it in committed files, screenshots, logs, or issue
-reports.
+If you are already working with an agent, ask it to connect the current folder
+to Webstudio. Give the editable Builder share link only when the trusted agent
+asks for it. The agent should perform the steps below, follow any
+client-specific output from `webstudio connect`, and verify the connection by
+listing the project pages. Treat the share link as a credential: do not include
+it in committed files, screenshots, logs, or issue reports.
 
 1. Configure a project with `webstudio init --link <api-share-link> --json`.
-2. Check capabilities with `webstudio permissions --json`.
-3. Use shortcut calls such as `webstudio meta.index` and `webstudio insert-fragment '<json>' --dry-run` for individual MCP tool calls. Use the explicit equivalent `webstudio mcp single-op-call <tool> '<json>'` when you need to force the MCP path, or `webstudio mcp run '[{"tool":"components.find","input":{"brief":"button"}}]'` for bounded multi-call workflows. Use `webstudio mcp run .temp/mcp-calls.json` for large batches.
-4. Start discovery with `meta.index`, then call focused tools with concrete JSON, for example `webstudio mcp single-op-call meta.guide '{"brief":"Create a design system page using every component"}'`.
+2. Synchronize it with `webstudio sync`.
+3. Generate the client configuration with `webstudio connect claude`,
+   `webstudio connect codex`, `webstudio connect cursor`, or
+   `webstudio connect vscode`. Use `--print` to preview the generated setup.
+4. Check capabilities with `webstudio permissions --json`.
+5. For shell-driven agents, use shortcut calls such as `webstudio meta.index` and `webstudio insert-fragment '<json>' --dry-run` for individual MCP tool calls. Use the explicit equivalent `webstudio mcp single-op-call <tool> '<json>'` when you need to force the MCP path, or `webstudio mcp run '[{"tool":"components.find","input":{"brief":"button"}}]'` for bounded multi-call workflows. Use `webstudio mcp run .temp/mcp-calls.json` for large batches.
+6. For MCP clients, start the server with `webstudio mcp`.
+7. Start discovery with `meta.index`, then call focused tools with concrete JSON, for example `webstudio mcp single-op-call meta.guide '{"brief":"Create a design system page using every component"}'`.
 
-Do not run `webstudio sync`, install an MCP server, change client configuration,
-or restart the app for this local CLI workflow.
-
-When the user explicitly wants persistent native MCP integration, run
-`webstudio connect claude`, `webstudio connect codex`, `webstudio connect
-cursor`, or `webstudio connect vscode`. This optional command changes client
-configuration, so follow its client-specific reload or restart instruction.
-Use `--print` to inspect the generated setup without changing configuration or
-requiring project access. For Codex, `connect` registers and verifies the server
-through the Codex CLI. Before changing client configuration, `connect` verifies
-that the saved project endpoint is reachable and its credential is accepted.
+After linking and synchronization, run `webstudio connect <client>`, reload or
+restart the client, then ask the agent to use Webstudio MCP to list the project
+pages. The supported client names are `claude`, `codex`, `cursor`, and `vscode`.
+For Codex, `connect` registers and verifies the server through the Codex CLI;
+the resulting server appears in Codex settings. Use `--print` to inspect the
+exact registration command without changing configuration or requiring project
+access. Before changing client configuration, `connect` verifies that the saved
+project endpoint is reachable and its credential is accepted. If verification
+fails, follow the specific connection, compatibility, or relinking guidance in
+the error.
 
 Start MCP from the linked Webstudio project root. The lifecycle status line prints that absolute root; create local scripts, screenshots, and temporary artifacts under that root, for example `<project root>/.temp/script.mjs`. If the shell starts in a parent workspace, `cd` into the project root first or use absolute paths.
 
@@ -42,7 +47,7 @@ Examples:
 ```sh
 webstudio mcp single-op-call meta.index
 webstudio mcp single-op-call meta.guide '{"brief":"Create a design system page using every component"}'
-webstudio mcp single-op-call meta.get-more-tools '{"tools":["insert-fragment"]}'
+webstudio mcp single-op-call meta.get_more_tools '{"tools":["insert-fragment"]}'
 webstudio mcp single-op-call components.list '{"source":"all"}'
 webstudio mcp single-op-call components.coverage-plan
 webstudio mcp single-op-call components.search '{"brief":"radix select"}'
@@ -57,7 +62,7 @@ Shortcut equivalents:
 ```sh
 webstudio meta.index
 webstudio meta.guide '{"brief":"Create a design system page using every component"}'
-webstudio meta.get-more-tools '{"tools":["insert-fragment"]}'
+webstudio meta.get_more_tools '{"tools":["insert-fragment"]}'
 webstudio components.list '{"source":"all"}'
 webstudio components.coverage-plan
 webstudio components.search '{"brief":"radix select"}'
@@ -67,60 +72,20 @@ webstudio templates.get '{"component":"@webstudio-is/sdk-components-react-radix:
 webstudio insert-fragment --input-file .temp/insert-fragment.json
 ```
 
-### Tool name convention
-
-MCP tool names are opaque strings, not JavaScript property access. A dot separates a namespace from its tool name, and every segment uses lowercase kebab-case. For example, `components.coverage-insert-next` is the `coverage-insert-next` tool in the `components` namespace. Pass the complete name as one CLI argument: `webstudio components.coverage-insert-next`.
-
-### Readable fragment inputs
-
-Prefer `--input-file` for JSX so JSON and shell quoting do not obscure the fragment. For example, save this as `.temp/insert-fragment.json`:
-
-```json
-{
-  "parentInstanceId": "root-id",
-  "fragment": "<ws.element ws:tag='section' ws:style={css`padding: 32px; display: grid; gap: 16px;`}><ws.element ws:tag='h2'>Northstar Product OS</ws.element><ws.element ws:tag='p'>Reusable patterns for teams.</ws.element></ws.element>"
-}
-```
-
-Then run `webstudio insert-fragment --input-file .temp/insert-fragment.json`. Single quotes inside the JSX keep the JSON valid and readable without backslash-escaped attributes.
-
-Write and review larger fragments as JSX before placing them in the `fragment` field. Common patterns:
-
-```tsx
-<ws.element
-  ws:tag="section"
-  style={{ padding: 32, borderRadius: 16 }}
->
-  <ws.element ws:tag="h2">Operations Console</ws.element>
-  <ws.element ws:tag="p">
-    React-style object styles become editable Webstudio styles.
-  </ws.element>
-</ws.element>
-
-<ws.element
-  ws:tag="section"
-  ws:tokens={[token("accent", css`color: #0f766e;`)]}
->
-  <ws.element
-    ws:tag="button"
-    onClick={new ActionValue(["event"], expression`console.log(event)`)}
-  >
-    Track launch
-  </ws.element>
-</ws.element>
-
-<ws.element ws:tag="section">
-  <radix.Switch>
-    <radix.SwitchThumb />
-  </radix.Switch>
-</ws.element>
-```
-
 Rules:
 
 - Inside the Webstudio monorepo, replace `webstudio` in the examples above with `node packages/cli/local.js`, for example `node packages/cli/local.js meta.index`.
-- For a simple authored/styled section, run `meta.index`, then `meta.get-more-tools '{"tools":["insert-fragment"]}'`, then `insert-fragment`. Do not grep source files, dump full MCP resources, or write parser scripts first.
-- In `insert-fragment` JSX, use ``ws:style={css`...`}`` for Webstudio-native CSS, or use React-style object syntax such as `style={{ padding: 24 }}` when that is simpler. Both forms create editable Webstudio style data.
+- For a simple authored/styled section, run `meta.index`, then `meta.get_more_tools '{"tools":["insert-fragment"]}'`, then `insert-fragment`. Do not grep source files, dump full MCP resources, or write parser scripts first.
+- In `insert-fragment` JSX, use `ws:style={css\`...\`}`for Webstudio-native CSS, or use React-style object syntax such as`style={{ padding: 24 }}` when that is simpler. Both forms create editable Webstudio style data.
+- Prefer JSX for authored/styled content. Common `insert-fragment` inputs:
+
+```jsonl
+{"parentInstanceId":"root-id","fragment":"<ws.element ws:tag=\"section\" ws:style={css`padding: 32px; display: grid; gap: 16px;`}><ws.element ws:tag="h2">Northstar Product OS</ws.element><ws.element ws:tag="p">Reusable patterns for teams.</ws.element></ws.element>"}
+{"parentInstanceId":"root-id","fragment":"<ws.element ws:tag=\"section\" style={{ padding: 32, borderRadius: 16 }}><ws.element ws:tag="h2">Operations Console</ws.element><ws.element ws:tag="p">React-style object styles become editable Webstudio styles.</ws.element></ws.element>"}
+{"parentInstanceId":"root-id","fragment":"<ws.element ws:tag=\"section\" ws:tokens={[token(\"accent\", css`color: #0f766e;`)]}><ws.element ws:tag="button" onClick={new ActionValue([\"event\"], expression`console.log(event)`)}>Track launch</ws.element></ws.element>"}
+{"parentInstanceId":"root-id","fragment":"<ws.element ws:tag=\"section\"><radix.Switch><radix.SwitchThumb /></radix.Switch></ws.element>"}
+```
+
 - Do not access host globals or dynamic code APIs in JSX fragments, including `process`, `globalThis`, `eval`, `Function`, or `constructor`.
 - Use Webstudio prop names such as `class` and `for`; do not use React aliases `className` or `htmlFor`.
 - Use Webstudio actions for event/action props, for example `onClick={new ActionValue(["event"], expression\`console.log(event)\`)}`. Do not pass JavaScript functions such as `onClick={() => ...}`.
@@ -250,7 +215,7 @@ Use MCP itself after startup, or call the same tools with `webstudio mcp single-
 - `resources/list`: available overview and full JSON resources
 - `meta.index`: concise capability catalog
 - `meta.guide`: workflow for a user goal; call with a string brief such as `{"brief":"Create a pricing page"}`
-- `meta.get-more-tools`: detailed params, examples, namespaces, and local/server behavior; prefer exact names such as `{"tools":["insert-fragment"]}` when you know them
+- `meta.get_more_tools`: detailed params, examples, namespaces, and local/server behavior; prefer exact names such as `{"tools":["insert-fragment"]}` when you know them
 - `components.list`: compact registry metadata for visible components and templates; use a focused get tool for complete details
 - `components.summary`: component counts by default; use `{"detail":"components","limit":20}` for paginated entries
 - `components.coverage-plan`: compact paged plan for design-system coverage tasks that need every component; default returns counts plus the first root page, use `{"detail":"roots"}`, `{"detail":"parts"}`, or `{"detail":"full"}` for more
@@ -302,7 +267,7 @@ terms, agents can:
 - List, create, update, attach, detach, extract, duplicate, rename, lock, unlock, reorder, clear, and delete design tokens and style sources.
 - List, define, rename, delete, and rewrite CSS variables.
 - List, create, update, and delete static data variables.
-- Create string, number, boolean, and JSON variables. Arrays use JSON.
+- Create string, number, boolean, string list, and JSON variables.
 - Delete unused data variables.
 - List, create, update, upsert, bind, and delete resources.
 - Create HTTP resources.

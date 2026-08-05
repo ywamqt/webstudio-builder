@@ -5,26 +5,8 @@ import {
   getResources,
 } from "../../app/__generated__/[redirect]._index.server";
 import { assets } from "../../app/__generated__/$resources.assets";
-import {
-  assetQueryDeploymentId,
-  assetQueryDatabase,
-} from "../../app/__generated__/$resources.asset-query-manifest";
-import { createSsgAssetResourceFetch } from "../../app/asset-resource-fetch";
 
-const fetchAssetResource =
-  assetQueryDatabase === undefined
-    ? undefined
-    : createSsgAssetResourceFetch({
-        deploymentId: assetQueryDeploymentId,
-        artifact: assetQueryDatabase,
-        runtimeAssets: assets,
-      });
-
-const customFetch: typeof fetch = async (input, init) => {
-  const assetResourceResponse = await fetchAssetResource?.(input, init);
-  if (assetResourceResponse !== undefined) {
-    return assetResourceResponse;
-  }
+const customFetch: typeof fetch = (input, init) => {
   if (typeof input !== "string") {
     return fetch(input, init);
   }
@@ -44,7 +26,13 @@ const customFetch: typeof fetch = async (input, init) => {
     };
     const response = new Response(JSON.stringify(data));
     response.headers.set("content-type", "application/json; charset=utf-8");
-    return response;
+    return Promise.resolve(response);
+  }
+
+  if (isLocalResource(input, "assets")) {
+    const response = new Response(JSON.stringify(assets));
+    response.headers.set("content-type", "application/json; charset=utf-8");
+    return Promise.resolve(response);
   }
 
   return fetch(input, init);
@@ -67,8 +55,7 @@ export const data = async (pageContext: PageContextServer) => {
 
   const resources = await loadResources(
     customFetch,
-    getResources({ system }).data,
-    url
+    getResources({ system }).data
   );
   const pageMeta = getPageMeta({ system, resources });
 

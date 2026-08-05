@@ -5,16 +5,11 @@ import {
 } from "node:child_process";
 import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer as createTcpServer } from "node:net";
-import { basename, delimiter, dirname, join, parse, win32 } from "node:path";
-import { parse as parseHtml, type DefaultTreeAdapterMap } from "parse5";
-import type { ProjectPreviewMode } from "@webstudio-is/project-build/visual";
-
-export type PreviewMode = ProjectPreviewMode;
+import { delimiter, dirname, join, parse } from "node:path";
 
 export type PreviewServerOptions = {
   host: string;
   port: number;
-  mode?: PreviewMode;
   cwd?: string;
   imageDomains?: string[];
 };
@@ -33,8 +28,6 @@ export type PreviewServerDependencies = {
   readFile: typeof readFile;
   writeFile: typeof writeFile;
   sleep: (ms: number) => Promise<void>;
-  nodeExecPath: string;
-  npmExecPath?: string;
   platform: typeof process.platform;
 };
 
@@ -47,8 +40,6 @@ export const defaultPreviewServerDependencies: PreviewServerDependencies = {
   readFile,
   writeFile,
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  nodeExecPath: process.execPath,
-  npmExecPath: process.env.npm_execpath,
   platform: process.platform,
 };
 
@@ -118,62 +109,32 @@ export const getPreviewUrl = ({
 
 export const getPreviewBuildArgs = () => ["run", "build"];
 
-export const getPreviewStartArgs = (options: PreviewServerOptions) =>
-  options.mode === "iterative"
-    ? [
-        "run",
-        "dev",
-        "--",
-        "--host",
-        options.host,
-        "--port",
-        String(options.port),
-        "--strictPort",
-      ]
-    : ["run", "start"];
+export const getPreviewStartArgs = (_options: PreviewServerOptions) => [
+  "run",
+  "start",
+];
 
 export const getPreviewCommand = (
   platform: typeof process.platform = process.platform
 ) => (platform === "win32" ? "npm.cmd" : "npm");
-
-export const getNpmInvocation = (
-  args: string[],
-  {
-    nodeExecPath = process.execPath,
-    npmExecPath = process.env.npm_execpath,
-    platform = process.platform,
-  }: {
-    nodeExecPath?: string;
-    npmExecPath?: string;
-    platform?: typeof process.platform;
-  } = {}
-) => {
-  const npmCliName =
-    npmExecPath === undefined
-      ? undefined
-      : platform === "win32"
-        ? win32.basename(npmExecPath)
-        : basename(npmExecPath);
-  if (npmExecPath !== undefined && npmCliName === "npm-cli.js") {
-    return { command: nodeExecPath, args: [npmExecPath, ...args] };
-  }
-  return { command: getPreviewCommand(platform), args };
-};
 
 export const runPreviewBuild = async (
   dependencies = defaultPreviewServerDependencies,
   cwd?: string,
   stdio: StdioOptions = "inherit"
 ) => {
-  const invocation = getNpmInvocation(getPreviewBuildArgs(), dependencies);
-  const buildProcess = dependencies.spawn(invocation.command, invocation.args, {
-    cwd,
-    stdio,
-    env: getPreviewEnv(cwd, {
-      ...processEnv(),
-      NODE_ENV: "production",
-    }),
-  });
+  const buildProcess = dependencies.spawn(
+    getPreviewCommand(dependencies.platform),
+    getPreviewBuildArgs(),
+    {
+      cwd,
+      stdio,
+      env: getPreviewEnv(cwd, {
+        ...processEnv(),
+        NODE_ENV: "production",
+      }),
+    }
+  );
   let output = "";
   const appendOutput = (chunk: unknown) => {
     output = `${output}${String(chunk)}`.slice(-4000);
@@ -221,13 +182,9 @@ export const startPreviewServer = (
   options: PreviewServerOptions & { stdio?: StdioOptions },
   dependencies = defaultPreviewServerDependencies
 ): PreviewServerResult => {
-  const invocation = getNpmInvocation(
-    getPreviewStartArgs(options),
-    dependencies
-  );
   const previewProcess = dependencies.spawn(
-    invocation.command,
-    invocation.args,
+    getPreviewCommand(dependencies.platform),
+    getPreviewStartArgs(options),
     {
       cwd: options.cwd,
       stdio: options.stdio ?? "inherit",
@@ -238,10 +195,7 @@ export const startPreviewServer = (
         ...(options.imageDomains === undefined
           ? {}
           : { DOMAINS: options.imageDomains.join(",") }),
-        NODE_ENV: options.mode === "iterative" ? "development" : "production",
-        ...(options.mode === "iterative"
-          ? { WEBSTUDIO_PREVIEW_HMR: "disabled" }
-          : {}),
+        NODE_ENV: "production",
       }),
     }
   );
@@ -265,7 +219,6 @@ export type PreviewControllerResult = {
   url: string;
   pid?: number;
   running: boolean;
-  mode: PreviewMode;
 };
 
 type PreviewControllerStartOptions = Partial<PreviewServerOptions> & {
@@ -273,7 +226,7 @@ type PreviewControllerStartOptions = Partial<PreviewServerOptions> & {
   buildCacheKey?: string;
 };
 
-export const arePreviewImageDomainsEqual = (
+const areStringArraysEqual = (
   left: string[] | undefined,
   right: string[] | undefined
 ) =>
@@ -285,7 +238,7 @@ export const arePreviewImageDomainsEqual = (
 
 export const previewBuildCacheMarker = ".webstudio-preview-build";
 
-const getPreviewProjectIdentity = async (
+const getPreviewProjectId = async (
   cwd: string | undefined,
   dependencies = defaultPreviewServerDependencies
 ) => {
@@ -295,16 +248,11 @@ const getPreviewProjectIdentity = async (
   try {
     const data = JSON.parse(
       await dependencies.readFile(join(cwd, ".webstudio", "data.json"), "utf8")
-    ) as { build?: { projectId?: unknown; version?: unknown } };
+    ) as { build?: { projectId?: unknown } };
     if (typeof data.build?.projectId !== "string") {
       throw new Error("projectId is missing");
     }
-    return {
-      projectId: data.build.projectId,
-      ...(typeof data.build.version === "number"
-        ? { version: data.build.version }
-        : {}),
-    };
+    return data.build.projectId;
   } catch (error) {
     throw new Error(
       `Could not identify the generated preview project in ${join(cwd, ".webstudio", "data.json")}.`,
@@ -313,35 +261,11 @@ const getPreviewProjectIdentity = async (
   }
 };
 
-const getGeneratedSiteIdentity = (html: string) => {
-  const document = parseHtml(html);
-  const visit = (
-    node: DefaultTreeAdapterMap["node"]
-  ): { projectId: string; version?: number } | undefined => {
-    if ("attrs" in node && Array.isArray(node.attrs)) {
-      const attributes = new Map(
-        node.attrs.map(({ name, value }) => [name, value])
-      );
-      const projectId = attributes.get("data-ws-project");
-      const versionValue = attributes.get("data-ws-version");
-      if (projectId !== undefined) {
-        const version = Number(versionValue);
-        return {
-          projectId,
-          ...(Number.isFinite(version) ? { version } : {}),
-        };
-      }
-    }
-    if ("childNodes" in node) {
-      for (const child of node.childNodes) {
-        const identity = visit(child);
-        if (identity !== undefined) {
-          return identity;
-        }
-      }
-    }
-  };
-  return visit(document);
+const hasProjectMarker = (html: string, projectId: string) => {
+  const escapedProjectId = projectId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `data-ws-project\\s*=\\s*(["'])${escapedProjectId}\\1`
+  ).test(html);
 };
 
 export const waitForPreviewReady = async (
@@ -351,13 +275,13 @@ export const waitForPreviewReady = async (
     intervalMs = 250,
     isRunning,
     requiredAssetNames = [],
-    requiredProject,
+    requiredProjectId,
   }: {
     timeoutMs?: number;
     intervalMs?: number;
     isRunning?: () => boolean;
     requiredAssetNames?: string[];
-    requiredProject?: { projectId: string; version?: number };
+    requiredProjectId?: string;
   } = {},
   dependencies = defaultPreviewServerDependencies
 ) => {
@@ -379,40 +303,17 @@ export const waitForPreviewReady = async (
         method: "GET",
         signal: AbortSignal.timeout(attemptTimeoutMs),
       });
-      if (response.status === 401 && requiredProject !== undefined) {
-        const identityResponse = await dependencies.fetch(
-          new URL("/__webstudio/preview.json", url),
-          {
-            method: "GET",
-            signal: AbortSignal.timeout(attemptTimeoutMs),
-          }
-        );
-        if (identityResponse.ok) {
-          const identity = (await identityResponse.json()) as {
-            projectId?: unknown;
-            version?: unknown;
-          };
-          if (
-            identity.projectId === requiredProject.projectId &&
-            (requiredProject.version === undefined ||
-              identity.version === requiredProject.version)
-          ) {
-            return;
-          }
-          sawUnexpectedProject = true;
-        }
-      }
       if (response.status < 500) {
-        if (requiredAssetNames.length === 0 && requiredProject === undefined) {
+        if (
+          requiredAssetNames.length === 0 &&
+          requiredProjectId === undefined
+        ) {
           return;
         }
         const html = await response.text();
-        const identity = getGeneratedSiteIdentity(html);
         const servesExpectedProject =
-          requiredProject === undefined ||
-          (identity?.projectId === requiredProject.projectId &&
-            (requiredProject.version === undefined ||
-              identity.version === requiredProject.version));
+          requiredProjectId === undefined ||
+          hasProjectMarker(html, requiredProjectId);
         const servesLatestAssets =
           requiredAssetNames.length === 0 ||
           requiredAssetNames.some((name) => html.includes(name));
@@ -491,41 +392,7 @@ export const createPreviewController = (
     url: getPreviewUrl(currentOptions),
     pid: server?.process.pid,
     running: isRunning(),
-    mode: currentOptions.mode ?? "production",
   });
-  const resolveOptions = (
-    options: PreviewControllerStartOptions
-  ): PreviewServerOptions => {
-    const running = isRunning();
-    return {
-      host: options.host ?? (running ? currentOptions.host : defaults.host),
-      port: options.port ?? (running ? currentOptions.port : defaults.port),
-      cwd: options.cwd ?? (running ? currentCwd : defaults.cwd),
-      imageDomains:
-        options.imageDomains ??
-        (running ? currentOptions.imageDomains : defaults.imageDomains),
-      mode:
-        options.mode ??
-        (running ? currentOptions.mode : defaults.mode) ??
-        "production",
-    };
-  };
-  const canReuse = (options: PreviewControllerStartOptions = {}) => {
-    if (isRunning() === false) {
-      return false;
-    }
-    const nextOptions = resolveOptions(options);
-    return (
-      nextOptions.host === currentOptions.host &&
-      nextOptions.port === currentOptions.port &&
-      nextOptions.cwd === currentCwd &&
-      nextOptions.mode === (currentOptions.mode ?? "production") &&
-      arePreviewImageDomainsEqual(
-        nextOptions.imageDomains,
-        currentOptions.imageDomains
-      )
-    );
-  };
   const stop = async () => {
     if (server === undefined) {
       return;
@@ -551,10 +418,25 @@ export const createPreviewController = (
     options: PreviewControllerStartOptions = {}
   ): Promise<PreviewControllerResult> => {
     const running = isRunning();
-    const nextOptions = resolveOptions(options);
+    const nextOptions = {
+      host: options.host ?? (running ? currentOptions.host : defaults.host),
+      port: options.port ?? (running ? currentOptions.port : defaults.port),
+      cwd: options.cwd ?? (running ? currentCwd : defaults.cwd),
+      imageDomains:
+        options.imageDomains ??
+        (running ? currentOptions.imageDomains : defaults.imageDomains),
+    };
     if (running) {
       if (options.restart !== true) {
-        if (canReuse(options) === false) {
+        if (
+          nextOptions.host !== currentOptions.host ||
+          nextOptions.port !== currentOptions.port ||
+          nextOptions.cwd !== currentCwd ||
+          areStringArraysEqual(
+            nextOptions.imageDomains,
+            currentOptions.imageDomains
+          ) === false
+        ) {
           throw new Error(
             `Preview server is already running at ${getPreviewUrl(currentOptions)}. Stop it before starting a different preview server.`
           );
@@ -572,9 +454,8 @@ export const createPreviewController = (
             .readFile(join(currentCwd, previewBuildCacheMarker), "utf8")
             .catch(() => undefined);
     if (
-      nextOptions.mode === "production" &&
-      (options.buildCacheKey === undefined ||
-        cachedBuildKey !== options.buildCacheKey)
+      options.buildCacheKey === undefined ||
+      cachedBuildKey !== options.buildCacheKey
     ) {
       await runPreviewBuild(dependencies, currentCwd, [
         "ignore",
@@ -589,43 +470,39 @@ export const createPreviewController = (
       }
     }
     serverOutput = "";
-    const startedServer = startPreviewServer(
+    server = startPreviewServer(
       {
         ...nextOptions,
         stdio: ["ignore", "pipe", "pipe"],
       },
       dependencies
     );
-    server = startedServer;
-    startedServer.process.stdout?.on("data", appendServerOutput);
-    startedServer.process.stderr?.on("data", appendServerOutput);
-    startedServer.process.once("exit", () => {
-      if (server === startedServer) {
-        server = undefined;
-      }
+    server.process.stdout?.on("data", appendServerOutput);
+    server.process.stderr?.on("data", appendServerOutput);
+    server.process.once("exit", () => {
+      server = undefined;
     });
     return getStatus();
   };
   return {
-    canReuse,
     start,
     async startAndWait(
       options: PreviewControllerStartOptions = {}
     ): Promise<PreviewControllerResult> {
       const nextCwd = options.cwd ?? (isRunning() ? currentCwd : defaults.cwd);
-      const requiredProject = await getPreviewProjectIdentity(
+      const requiredProjectId = await getPreviewProjectId(
         nextCwd,
         dependencies
       );
       const result = await start(options);
-      const requiredAssetNames =
-        result.mode === "production"
-          ? await getPreviewCssAssetNames(currentCwd, dependencies)
-          : [];
+      const requiredAssetNames = await getPreviewCssAssetNames(
+        currentCwd,
+        dependencies
+      );
       try {
         await waitForPreviewReady(
           result.url,
-          { isRunning, requiredAssetNames, requiredProject },
+          { isRunning, requiredAssetNames, requiredProjectId },
           dependencies
         );
       } catch (error) {

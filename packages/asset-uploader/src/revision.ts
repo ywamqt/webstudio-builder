@@ -9,7 +9,7 @@ import {
   type AppContext,
 } from "@webstudio-is/trpc-interface/index.server";
 import type { Client } from "@webstudio-is/postgrest/index.server";
-import type { AssetObjectStore } from "./client";
+import type { AssetClient } from "./client";
 import { uploadFileData } from "./upload";
 import { createUniqueAssetFilename } from "./utils/get-unique-filename";
 import { sanitizeS3Key } from "./utils/sanitize-s3-key";
@@ -103,7 +103,7 @@ export const updateAssetContent = async (
     expectedName: string;
     data: ReadableStream<Uint8Array>;
   },
-  assetClient: AssetObjectStore,
+  assetClient: AssetClient,
   context: AppContext
 ): Promise<Asset> => {
   const canEdit = await authorizeProject.hasProjectPermit(
@@ -152,7 +152,6 @@ export const updateAssetContent = async (
     assetClient,
     context,
     undefined,
-    undefined,
     async (name, { postgrest }) => {
       const deletedFile = await postgrest.client
         .from("File")
@@ -181,7 +180,6 @@ export const updateAssetContent = async (
       context.postgrest.client
     );
   } catch (error) {
-    let swapCommitted = false;
     try {
       const current = await loadAsset({
         assetId,
@@ -189,20 +187,17 @@ export const updateAssetContent = async (
         client: context.postgrest.client,
       });
       if (current.name === revisionName) {
-        swapCommitted = true;
-      } else {
-        const discardedRevision = await context.postgrest.client
-          .from("File")
-          .update({ isDeleted: true })
-          .eq("name", revisionName);
-        assertPostgrestSuccess(discardedRevision);
+        return revision;
       }
+      const discardedRevision = await context.postgrest.client
+        .from("File")
+        .update({ isDeleted: true })
+        .eq("name", revisionName);
+      assertPostgrestSuccess(discardedRevision);
     } catch (cleanupError) {
       console.error("Unable to discard an asset revision", cleanupError);
     }
-    if (swapCommitted === false) {
-      throw error;
-    }
+    throw error;
   }
 
   return revision;

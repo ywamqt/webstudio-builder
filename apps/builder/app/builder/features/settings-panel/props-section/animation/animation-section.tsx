@@ -18,12 +18,11 @@ import {
 import {
   type AnimationAction,
   type AnimationActionScroll,
-  createAnimationActionInput,
+  animationAction,
   type InsetUnitValue,
   insetUnitValue,
   RANGE_UNITS,
 } from "@webstudio-is/sdk";
-import { parseCssValue } from "@webstudio-is/css-data";
 import {
   ArrowDownIcon,
   ArrowRightIcon,
@@ -57,8 +56,6 @@ const defaultActionValue: AnimationAction = {
   type: "view",
   animations: [],
 };
-
-const animationActionInput = createAnimationActionInput({ parseCssValue });
 
 const animationAxisDescription: Record<
   Exclude<NonNullable<AnimationAction["axis"]>, "block" | "inline">,
@@ -385,7 +382,7 @@ export const AnimationSection = ({
       return;
     }
 
-    const parsedValue = animationActionInput.safeParse(value);
+    const parsedValue = animationAction.safeParse(value);
     if (parsedValue.success) {
       onChange(parsedValue.data, isEphemeral);
       return;

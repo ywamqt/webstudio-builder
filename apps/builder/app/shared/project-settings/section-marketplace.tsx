@@ -62,7 +62,7 @@ const defaultMarketplaceProduct: Partial<MarketplaceProduct> = {
   category: "sectionTemplates",
 };
 
-const validate = (data: Partial<MarketplaceProduct>) => {
+const validate = (data: MarketplaceProduct) => {
   const parsedResult = marketplaceProductUpdateInput.safeParse(data);
   if (parsedResult.success === false) {
     return parsedResult.error.flatten().fieldErrors;
@@ -124,10 +124,7 @@ const useMarketplaceApprovalStatus = () => {
 export const SectionMarketplace = () => {
   const project = useStore($project);
   const approval = useMarketplaceApprovalStatus();
-  const [data, setData] = useState<Partial<MarketplaceProduct>>(() => ({
-    ...defaultMarketplaceProduct,
-    ...$marketplaceProduct.get(),
-  }));
+  const [data, setData] = useState(() => $marketplaceProduct.get());
   const ids = useIds([
     "name",
     "category",
@@ -142,11 +139,10 @@ export const SectionMarketplace = () => {
   const [isConfirmed, setIsConfirmed] = useState<boolean>(false);
   const [errors, setErrors] = useState<ReturnType<typeof validate>>();
 
-  if (project === undefined) {
+  if (data === undefined || project === undefined) {
     return;
   }
   const asset = assets.get(data.thumbnailAssetId ?? "");
-  const isValid = marketplaceProductUpdateInput.safeParse(data).success;
 
   const handleSave = <Setting extends keyof MarketplaceProduct>(
     setting: Setting
@@ -164,13 +160,9 @@ export const SectionMarketplace = () => {
       if (errors) {
         return;
       }
-      const result = marketplaceProductUpdateInput.safeParse(nextData);
-      if (result.success === false) {
-        return;
-      }
       executeRuntimeMutation({
         id: "projectSettings.updateMarketplaceProduct",
-        input: result.data,
+        input: nextData,
       });
     };
   };
@@ -345,7 +337,7 @@ export const SectionMarketplace = () => {
         {approval.status === "UNLISTED" ? (
           <Button
             color="primary"
-            disabled={isConfirmed === false || isValid === false}
+            disabled={isConfirmed === false || errors !== undefined}
             state={approval.state === "idle" ? undefined : "pending"}
             onClick={approval.submit}
           >

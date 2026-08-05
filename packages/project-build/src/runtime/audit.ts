@@ -1,4 +1,4 @@
-import { isLiteralExpression } from "@webstudio-is/expression";
+import { isLiteralExpression } from "@webstudio-is/sdk";
 import { z } from "zod";
 import type { BuilderState } from "../state/builder-state";
 import type { BuilderRuntimeContext } from "./context";

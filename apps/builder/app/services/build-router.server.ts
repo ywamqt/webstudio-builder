@@ -22,7 +22,7 @@ import type { BuildPatchTransaction } from "@webstudio-is/project/index.server";
 import { loadDevBuildByProjectId } from "@webstudio-is/project-build/server";
 import { parseWebstudioJsxFragment } from "@webstudio-is/project-build/transfer/server";
 import { serializePages } from "@webstudio-is/project-migrations/pages";
-import { loadAssetDataByProject } from "@webstudio-is/asset-uploader/server";
+import { loadAssetDataByProject } from "@webstudio-is/asset-uploader/index.server";
 import {
   checkProjectBuildPermissionInput,
   importProjectBundleInput,
@@ -33,7 +33,6 @@ import { removeAgentInstructionsFromProjectSettings } from "@webstudio-is/projec
 import { hydrateRestorePointTransaction } from "@webstudio-is/project-build/project-session";
 import {
   loadProjectBundleByBuildId,
-  loadProjectBundleByProjectId,
   loadPublishedProjectBundleByProjectId,
 } from "~/shared/db";
 import {
@@ -50,7 +49,6 @@ import {
   commitBuildTransactions,
 } from "./api-build.server";
 import { assertApiProjectPermit } from "./api-permits.server";
-import { getContentDatabasePublishDiagnostics } from "./content-database.server";
 
 const projectBundleInput = z.object({
   projectId: z.string(),
@@ -283,23 +281,6 @@ export const buildRouter = router({
       return await prepareProjectBundleForClient(
         ctx,
         await loadPublishedProjectBundleByProjectId(input.projectId, ctx)
-      );
-    }),
-
-  contentDatabasePublishDiagnostics: procedure
-    .input(z.object({ projectId: z.string() }))
-    .query(async ({ ctx, input }) => {
-      const canEdit = await authorizeProject.hasProjectPermit(
-        { projectId: input.projectId, permit: "edit" },
-        ctx
-      );
-      if (canEdit === false) {
-        throw new AuthorizationError(
-          "You don't have permission to edit this project."
-        );
-      }
-      return getContentDatabasePublishDiagnostics(
-        await loadProjectBundleByProjectId(input.projectId, ctx)
       );
     }),
 

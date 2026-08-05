@@ -24,7 +24,6 @@ import {
   isPageDraft,
 } from "@webstudio-is/sdk";
 import { serializePages } from "@webstudio-is/project-migrations/pages";
-import { tokenizer } from "acorn";
 import * as bcp47 from "bcp-47";
 import slugify from "slugify";
 import { z } from "zod";
@@ -860,56 +859,10 @@ const jsExpressionStartPattern =
   /^\s*(?:["'`[{(]|(?:await|new|typeof|void)\b|(?:undefined|null|true|false)\s*$)/;
 const jsExpressionOperatorPattern =
   /(?:\?\?|&&|\|\||=>|\?\s*.+\s*:|\.\s*[A-Za-z_$]|\[[^\]]*\]|\s(?:[=!<>]=?|[+\-*/%])\s)/;
-
-const pageTextSentenceSegmenter = new Intl.Segmenter(undefined, {
-  granularity: "sentence",
-});
-
-const hasMultipleSentences = (value: string) => {
-  let count = 0;
-  for (const { segment } of pageTextSentenceSegmenter.segment(value)) {
-    if (segment.trim().length > 0) {
-      count += 1;
-    }
-    if (count > 1) {
-      return true;
-    }
-  }
-  return false;
-};
-
-const hasWhitespaceAfterDot = (value: string) => {
-  try {
-    const tokens = tokenizer(value, { ecmaVersion: "latest" });
-    let token = tokens.getToken();
-    while (token.type.label !== "eof") {
-      const nextToken = tokens.getToken();
-      if (
-        token.type.label === "." &&
-        nextToken.type.label === "name" &&
-        token.end < nextToken.start
-      ) {
-        return true;
-      }
-      token = nextToken;
-    }
-  } catch {
-    return hasMultipleSentences(value);
-  }
-  return false;
-};
-
-const isAbsoluteUrl = (value: string) => {
-  try {
-    new URL(value);
-    return true;
-  } catch {
-    return false;
-  }
-};
+const urlStringPattern = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
 
 const normalizePageExpressionInput = (value: string) => {
-  if (isAbsoluteUrl(value) || hasWhitespaceAfterDot(value)) {
+  if (urlStringPattern.test(value)) {
     return JSON.stringify(value);
   }
   if (
@@ -952,7 +905,7 @@ const pageStatusExpressionInput = z
   .describe(pageStatusFieldHint);
 
 export const pagePathFieldHint =
-  'Plain page path. For a new non-home page, start with "/", for example "/pricing". Use colon-prefixed dynamic segments such as "/blog/:slug" when one page definition must render many concrete routes; do not create a separate page for every route value. The home page path is the empty string ""; do not use an empty path when creating a new page.';
+  'Plain page path. For a new non-home page, start with "/", for example "/pricing". The home page path is the empty string ""; do not use an empty path when creating a new page.';
 
 export const pageDraftFieldHint =
   "Set true to mark the page as draft. Draft pages remain editable and previewable in Builder but are omitted from every publish target, including staging, and from sitemap output. Set false to stage the page for a future publish; this does not deploy the site. The home page and /* catch-all page cannot be drafts.";

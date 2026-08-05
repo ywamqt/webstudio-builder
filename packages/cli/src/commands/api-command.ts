@@ -21,7 +21,6 @@ import {
   isMissingApiAccessError,
 } from "../error-codes";
 import { printJson } from "../json-output";
-import { isPlainRecord } from "../type-utils";
 import {
   executeProjectSessionApiOperation,
   getProjectSessionMeta,
@@ -53,7 +52,6 @@ export type ApiCommandName = ProjectSessionApiCommand;
 
 let activeApiCommandDryRun = false;
 let activeApiCommandRefresh = false;
-let activeApiCommandSessionProjectId: string | undefined;
 
 export const apiCommandOptions = (yargs: CommonYargsArgv) =>
   yargs
@@ -71,19 +69,7 @@ export const apiCommandOptions = (yargs: CommonYargsArgv) =>
       type: "boolean",
       describe:
         "Refresh required local project namespaces from the remote project before running a local-capable command.",
-    })
-    .option("project", {
-      type: "string",
-      describe:
-        "Use a previously linked project instead of the project linked to the current directory",
     });
-
-export const permissionsCommandOptions = (yargs: CommonYargsArgv) =>
-  apiCommandOptions(yargs).option("json", {
-    type: "boolean",
-    describe: "Print a machine-readable JSON response to stdout",
-    default: false,
-  });
 
 const outputDetailCommandOptions = (yargs: CommonYargsArgv) =>
   yargs
@@ -104,19 +90,6 @@ const requiredInputOption = (yargs: CommonYargsArgv, describe: string) =>
   yargs.option("input", {
     type: "string",
     describe,
-    demandOption: true,
-  });
-
-export const inputCommandOptions = (yargs: CommonYargsArgv) =>
-  requiredInputOption(
-    apiCommandOptions(yargs),
-    "Required JSON file containing the command input."
-  );
-
-export const assetResourceCommandOptions = (yargs: CommonYargsArgv) =>
-  apiCommandOptions(yargs).option("resource", {
-    type: "string",
-    describe: "Required Assets resource id",
     demandOption: true,
   });
 
@@ -288,14 +261,6 @@ export const updateMarketplaceProductCommandOptions = (
   requiredInputOption(
     apiCommandOptions(yargs),
     "Required JSON file with marketplace product metadata."
-  );
-
-export const submitMarketplaceProductCommandOptions = (
-  yargs: CommonYargsArgv
-) =>
-  confirmOption(
-    apiCommandOptions(yargs),
-    "Required. Confirm submitting the marketplace product for public review"
   );
 
 export const createRedirectCommandOptions = (yargs: CommonYargsArgv) =>
@@ -980,13 +945,14 @@ export const createVariableCommandOptions = (yargs: CommonYargsArgv) =>
       demandOption: true,
     })
     .option("value-type", {
-      choices: ["string", "number", "boolean", "json"] as const,
+      choices: ["string", "number", "boolean", "string[]", "json"] as const,
       describe: "Required variable value type",
       demandOption: true,
     })
     .option("value", {
       type: "string",
-      describe: "Required variable value; use JSON for arrays and objects",
+      describe:
+        "Required variable value; use JSON for json and string[] value types",
       demandOption: true,
     });
 
@@ -1006,12 +972,12 @@ export const updateVariableCommandOptions = (yargs: CommonYargsArgv) =>
       describe: "Update variable name used in expressions",
     })
     .option("value-type", {
-      choices: ["string", "number", "boolean", "json"] as const,
+      choices: ["string", "number", "boolean", "string[]", "json"] as const,
       describe: "Variable value type when updating --value",
     })
     .option("value", {
       type: "string",
-      describe: "Updated variable value; use JSON for arrays and objects",
+      describe: "Updated variable value; use JSON for json and string[] types",
     });
 
 export const deleteVariableCommandOptions = (yargs: CommonYargsArgv) =>
@@ -1321,7 +1287,6 @@ export const deleteAssetCommandOptions = (yargs: CommonYargsArgv) =>
 
 export type ApiCommandOptions = {
   command: ApiCommandName;
-  project?: string;
   json?: boolean;
   include?: string[];
   version?: number;
@@ -1388,7 +1353,7 @@ export type ApiCommandOptions = {
   text?: string;
   childDepth?: number;
   mode?: "text" | "expression" | "all" | "append" | "prepend" | "replace";
-  valueType?: "string" | "number" | "boolean" | "json";
+  valueType?: "string" | "number" | "boolean" | "string[]" | "json";
   value?: string;
   method?: "get" | "post" | "put" | "delete";
   url?: string;
@@ -1703,6 +1668,15 @@ const parseVariableValue = (
     return { type: valueType, value: rawValue === "true" };
   }
   const parsed = JSON.parse(rawValue) as unknown;
+  if (valueType === "string[]") {
+    if (
+      Array.isArray(parsed) === false ||
+      parsed.every((item) => typeof item === "string") === false
+    ) {
+      throw new Error("--value must be a JSON array of strings.");
+    }
+    return { type: valueType, value: parsed };
+  }
   return { type: "json", value: parsed };
 };
 
@@ -1839,11 +1813,7 @@ const runProjectSessionCommand = async (
     command,
     input,
     connection,
-    createProjectSession: (options) =>
-      dependencies.createCliProjectSession({
-        ...options,
-        sessionProjectId: activeApiCommandSessionProjectId,
-      }),
+    createProjectSession: dependencies.createCliProjectSession,
     getServerApiContract: dependencies.getServerApiContract,
     dryRun: options.dryRun ?? activeApiCommandDryRun,
     refresh: activeApiCommandRefresh,
@@ -2106,13 +2076,6 @@ const apiCommandHandlers: Partial<Record<ApiCommandName, ApiCommandHandler>> = {
       dependencies
     );
   },
-  "submit-marketplace-product": async (_options, connection, dependencies) =>
-    runProjectSessionCommand(
-      "submit-marketplace-product",
-      { acknowledgePublicSubmission: true },
-      connection,
-      dependencies
-    ),
   "list-redirects": async (options, connection, dependencies) =>
     runProjectSessionCommand(
       "list-redirects",
@@ -2887,27 +2850,6 @@ const apiCommandHandlers: Partial<Record<ApiCommandName, ApiCommandHandler>> = {
       dependencies
     );
   },
-  "get-assets-resource": async (options, connection, dependencies) =>
-    runProjectSessionCommand(
-      "get-assets-resource",
-      { resourceId: requireOption(options.resource, "--resource") },
-      connection,
-      dependencies
-    ),
-  "create-assets-resource": async (options, connection, dependencies) =>
-    runProjectSessionCommand(
-      "create-assets-resource",
-      await readInputObject(dependencies, options),
-      connection,
-      dependencies
-    ),
-  "update-assets-resource": async (options, connection, dependencies) =>
-    runProjectSessionCommand(
-      "update-assets-resource",
-      await readInputObject(dependencies, options),
-      connection,
-      dependencies
-    ),
   "create-resource": async (options, connection, dependencies) => {
     const input = {
       resource: (await getResourceFields(
@@ -3144,7 +3086,7 @@ const apiCommandHandlers: Partial<Record<ApiCommandName, ApiCommandHandler>> = {
   "delete-asset": async (options, connection, dependencies) => {
     requireTrueOption(options.confirm, "--confirm");
     const input = {
-      assetIds: requireListOption(options.asset, "--asset"),
+      assetIdsOrPrefixes: requireListOption(options.asset, "--asset"),
       force: options.force,
     };
     return runProjectSessionCommand(
@@ -3156,26 +3098,6 @@ const apiCommandHandlers: Partial<Record<ApiCommandName, ApiCommandHandler>> = {
   },
 };
 
-const printPermissions = (result: unknown) => {
-  if (isPlainRecord(result) === false) {
-    throw new Error("The server returned invalid project permissions.");
-  }
-  console.info(`Project role: ${String(result.relation ?? "unknown")}`);
-  const permits = Array.isArray(result.permits)
-    ? result.permits.filter(
-        (permit): permit is string => typeof permit === "string"
-      )
-    : [];
-  console.info(
-    `Permits: ${permits.length === 0 ? "none" : permits.join(", ")}`
-  );
-  for (const [name, value] of Object.entries(result)) {
-    if (name.startsWith("can") && typeof value === "boolean") {
-      console.info(`${name}: ${value ? "yes" : "no"}`);
-    }
-  }
-};
-
 export const apiCommand = async (
   options: ApiCommandOptions,
   dependencies = defaultDependencies
@@ -3183,19 +3105,11 @@ export const apiCommand = async (
   const start = Date.now();
   let projectId: string | undefined;
   try {
-    if (
-      options.json !== true &&
-      options.command !== "audit" &&
-      options.command !== "permissions"
-    ) {
+    if (options.json !== true && options.command !== "audit") {
       throw new Error(`${options.command} currently requires --json.`);
     }
 
-    const connection = await resolveApiConnection(
-      dependencies,
-      undefined,
-      options.project
-    );
+    const connection = await resolveApiConnection(dependencies);
     projectId = connection.projectId;
     const apiConnection = {
       ...connection,
@@ -3210,15 +3124,12 @@ export const apiCommand = async (
     }
     const previousDryRun = activeApiCommandDryRun;
     const previousRefresh = activeApiCommandRefresh;
-    const previousSessionProjectId = activeApiCommandSessionProjectId;
     activeApiCommandDryRun = options.dryRun === true;
     activeApiCommandRefresh = options.refresh === true;
-    activeApiCommandSessionProjectId = options.project;
     const response = await query(options, apiConnection, dependencies).finally(
       () => {
         activeApiCommandDryRun = previousDryRun;
         activeApiCommandRefresh = previousRefresh;
-        activeApiCommandSessionProjectId = previousSessionProjectId;
       }
     );
     const session = isProjectSessionEnvelope(response)
@@ -3229,8 +3140,6 @@ export const apiCommand = async (
       : response;
     if (options.command === "audit" && options.json !== true) {
       printAuditReport(result);
-    } else if (options.command === "permissions" && options.json !== true) {
-      printPermissions(result);
     } else {
       printJson({
         ok: true,

@@ -7,7 +7,6 @@ import {
   findAvailablePort,
   getPreviewBuildArgs,
   getPreviewCommand,
-  getNpmInvocation,
   getPreviewStartArgs,
   getPreviewUrl,
   materializePreviewAssets,
@@ -35,8 +34,6 @@ const createDependencies = (
   readFile: vi.fn(async () => "") as never,
   writeFile: vi.fn(async () => undefined) as never,
   sleep: vi.fn(async () => undefined),
-  nodeExecPath: "/usr/bin/node",
-  npmExecPath: undefined,
   platform: "linux",
   ...overrides,
 });
@@ -87,47 +84,10 @@ test("builds npm production preview args", () => {
   ]);
 });
 
-test("builds iterative preview args for an ordinary reload server", () => {
-  expect(
-    getPreviewStartArgs({
-      host: "127.0.0.1",
-      port: 5173,
-      mode: "iterative",
-    })
-  ).toEqual([
-    "run",
-    "dev",
-    "--",
-    "--host",
-    "127.0.0.1",
-    "--port",
-    "5173",
-    "--strictPort",
-  ]);
-});
-
 test("uses the platform npm executable for preview commands", () => {
   expect(getPreviewCommand("linux")).toBe("npm");
   expect(getPreviewCommand("darwin")).toBe("npm");
   expect(getPreviewCommand("win32")).toBe("npm.cmd");
-});
-
-test("reuses the npm cli that launched webstudio for preview commands", () => {
-  expect(
-    getNpmInvocation(["run", "build"], {
-      nodeExecPath: "C:\\Program Files\\nodejs\\node.exe",
-      npmExecPath:
-        "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
-      platform: "win32",
-    })
-  ).toEqual({
-    command: "C:\\Program Files\\nodejs\\node.exe",
-    args: [
-      "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
-      "run",
-      "build",
-    ],
-  });
 });
 
 test("runs generated project production build", async () => {
@@ -288,13 +248,11 @@ test("preview controller builds once and reuses a running server", async () => {
     url: "http://127.0.0.1:5173/",
     pid: 123,
     running: true,
-    mode: "production",
   });
   await expect(controller.start()).resolves.toEqual({
     url: "http://127.0.0.1:5173/",
     pid: 123,
     running: true,
-    mode: "production",
   });
   expect(controller.resolveUrl("/pricing")).toBe(
     "http://127.0.0.1:5173/pricing"
@@ -309,45 +267,6 @@ test("preview controller builds once and reuses a running server", async () => {
       NODE_ENV: "production",
     }),
   });
-});
-
-test("iterative preview starts without a production build", async () => {
-  const process = createPreviewProcess();
-  const spawn = vi.fn(() => process);
-  const controller = createPreviewController(
-    {
-      host: "127.0.0.1",
-      port: 5173,
-      cwd: "/tmp/preview",
-      mode: "iterative",
-    },
-    createDependencies({ spawn: spawn as never })
-  );
-
-  await expect(controller.start()).resolves.toMatchObject({
-    running: true,
-    mode: "iterative",
-  });
-  expect(spawn).toHaveBeenCalledOnce();
-  expect(spawn).toHaveBeenCalledWith(
-    "npm",
-    [
-      "run",
-      "dev",
-      "--",
-      "--host",
-      "127.0.0.1",
-      "--port",
-      "5173",
-      "--strictPort",
-    ],
-    expect.objectContaining({
-      env: expect.objectContaining({
-        NODE_ENV: "development",
-        WEBSTUDIO_PREVIEW_HMR: "disabled",
-      }),
-    })
-  );
 });
 
 test("preview controller reuses a matching persisted production build", async () => {
@@ -395,16 +314,7 @@ test("preview controller rejects incompatible start options while running", asyn
   );
   resolveProcessExit(buildProcess);
 
-  expect(controller.canReuse()).toBe(false);
   await controller.start();
-  expect(controller.canReuse()).toBe(true);
-  expect(controller.canReuse({ host: "127.0.0.1", port: 5173 })).toBe(true);
-  expect(controller.canReuse({ port: 3000 })).toBe(false);
-  expect(controller.canReuse({ cwd: "/tmp/other-preview" })).toBe(false);
-  expect(controller.canReuse({ mode: "iterative" })).toBe(false);
-  expect(controller.canReuse({ imageDomains: ["images.example.com"] })).toBe(
-    false
-  );
 
   await expect(controller.start({ port: 3000 })).rejects.toThrow(
     "Preview server is already running at http://127.0.0.1:5173/"
@@ -433,10 +343,6 @@ test("preview controller passes image domains to the managed server", async () =
   );
 
   await controller.start({ imageDomains: ["images.example.com"] });
-
-  expect(controller.canReuse({ imageDomains: ["images.example.com"] })).toBe(
-    true
-  );
 
   expect(spawn).toHaveBeenLastCalledWith(
     "npm",
@@ -480,14 +386,12 @@ test("preview controller stops the running server", async () => {
     url: "http://127.0.0.1:5173/",
     pid: undefined,
     running: false,
-    mode: "production",
   });
   expect(process.kill).toHaveBeenCalledOnce();
   await expect(controller.stop()).resolves.toEqual({
     url: "http://127.0.0.1:5173/",
     pid: undefined,
     running: false,
-    mode: "production",
   });
 });
 
@@ -509,13 +413,11 @@ test("preview controller reuses custom running options when start has no options
     url: "http://127.0.0.1:3000/",
     pid: 123,
     running: true,
-    mode: "production",
   });
   await expect(controller.start()).resolves.toEqual({
     url: "http://127.0.0.1:3000/",
     pid: 123,
     running: true,
-    mode: "production",
   });
 });
 
@@ -542,54 +444,16 @@ test("preview controller can restart a running server after rebuilding", async (
     url: "http://127.0.0.1:5173/",
     pid: 123,
     running: true,
-    mode: "production",
   });
   resolveProcessExit(firstProcess);
   await expect(controller.start({ restart: true })).resolves.toEqual({
     url: "http://127.0.0.1:5173/",
     pid: 456,
     running: true,
-    mode: "production",
   });
 
   expect(firstProcess.kill).toHaveBeenCalledOnce();
   expect(spawn).toHaveBeenCalledTimes(4);
-});
-
-test("ignores a delayed exit from a previously owned preview server", async () => {
-  let firstExit: (() => void) | undefined;
-  const firstProcess = createPreviewProcess({
-    once: vi.fn((event: string, callback: () => void) => {
-      if (event === "exit") {
-        firstExit = callback;
-      }
-      return undefined;
-    }) as never,
-    kill: vi.fn(() => false),
-  });
-  const secondProcess = createPreviewProcess({ pid: 456 });
-  const spawn = vi
-    .fn()
-    .mockReturnValueOnce(firstProcess)
-    .mockReturnValueOnce(secondProcess);
-  const controller = createPreviewController(
-    {
-      host: "127.0.0.1",
-      port: 5173,
-      cwd: "/tmp/preview",
-      mode: "iterative",
-    },
-    createDependencies({ spawn: spawn as never })
-  );
-
-  await controller.start();
-  await controller.start({ restart: true });
-  firstExit?.();
-
-  expect(controller.status()).toMatchObject({
-    pid: 456,
-    running: true,
-  });
 });
 
 test("waits for preview server readiness", async () => {
@@ -654,7 +518,7 @@ test("requires the exact generated project even when build assets match", async 
         timeoutMs: 1,
         intervalMs: 5,
         requiredAssetNames: ["index-new.css"],
-        requiredProject: { projectId: "expected-project" },
+        requiredProjectId: "expected-project",
       },
       createDependencies({ fetch })
     )
@@ -678,61 +542,11 @@ test("accepts the generated preview with the expected project marker", async () 
       {
         timeoutMs: 1000,
         requiredAssetNames: ["index-new.css"],
-        requiredProject: { projectId: "expected-project" },
+        requiredProjectId: "expected-project",
       },
       createDependencies({ fetch })
     )
   ).resolves.toBeUndefined();
-});
-
-test("uses the static identity marker when page authentication blocks readiness", async () => {
-  const fetch = vi
-    .fn()
-    .mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }))
-    .mockResolvedValueOnce(Response.json({ projectId: "project", version: 5 }));
-
-  await expect(
-    waitForPreviewReady(
-      "http://127.0.0.1:5173/",
-      {
-        timeoutMs: 1000,
-        requiredProject: { projectId: "project", version: 5 },
-      },
-      createDependencies({ fetch })
-    )
-  ).resolves.toBeUndefined();
-  expect(fetch).toHaveBeenNthCalledWith(
-    2,
-    new URL("http://127.0.0.1:5173/__webstudio/preview.json"),
-    expect.objectContaining({ method: "GET" })
-  );
-});
-
-test("waits for the exact generated session version", async () => {
-  const fetch = vi
-    .fn()
-    .mockResolvedValueOnce(
-      new Response(
-        '<html data-ws-project="project" data-ws-version="4"></html>'
-      )
-    )
-    .mockResolvedValueOnce(
-      new Response(
-        '<html data-ws-project="project" data-ws-version="5"></html>'
-      )
-    );
-
-  await waitForPreviewReady(
-    "http://127.0.0.1:5173/",
-    {
-      timeoutMs: 1000,
-      intervalMs: 5,
-      requiredProject: { projectId: "project", version: 5 },
-    },
-    createDependencies({ fetch })
-  );
-
-  expect(fetch).toHaveBeenCalledTimes(2);
 });
 
 test("rejects stale preview servers that serve a previous build", async () => {
@@ -778,7 +592,6 @@ test("preview controller waits when starting through startAndWait", async () => 
     url: "http://127.0.0.1:5173/",
     pid: 123,
     running: true,
-    mode: "production",
   });
   expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:5173/", {
     method: "GET",

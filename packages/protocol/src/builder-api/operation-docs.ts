@@ -104,13 +104,6 @@ const curatedPublicApiOperationDocumentation = [
     ],
   },
   {
-    command: "submit-marketplace-product",
-    description:
-      "Submit the configured marketplace product for review after updating its metadata and publishing the project",
-    requiredOptions: ["confirm", "json"],
-    examples: ["webstudio submit-marketplace-product --confirm --json"],
-  },
-  {
     command: "list-redirects",
     description: "List project redirects",
     examples: ["webstudio list-redirects --json"],
@@ -284,7 +277,7 @@ const curatedPublicApiOperationDocumentation = [
   {
     command: "inspect-instance",
     description:
-      "Show one element with its classes and custom attributes by default. Include styles, children, bindings, sources, and ancestors as needed",
+      "Show details for one element instance, optionally including ancestors",
     requiredOptions: ["instance", "json"],
     examples: [
       "webstudio inspect-instance --instance instance-id --include props,styles,children,ancestors --json",
@@ -336,7 +329,7 @@ const curatedPublicApiOperationDocumentation = [
     description:
       "Insert authored/styled Webstudio JSX with components, text, props, tokens, and styles. The CLI converts the JSX string to structured Webstudio data before mutation.",
     examples: [
-      'MCP tool: insert-fragment {"parentInstanceId":"parent-id","fragment":"<ws.element ws:tag=\'section\' />"}',
+      'MCP tool: insert-fragment {"parentInstanceId":"parent-id","fragment":"<ws.element ws:tag=\\"section\\" />"}',
     ],
   },
   {
@@ -411,15 +404,6 @@ const curatedPublicApiOperationDocumentation = [
     examples: [
       'webstudio update-text --instance instance-id --child-index 0 --text "Launch faster" --mode text --json',
       'webstudio update-text --instance instance-id --child-index 0 --text "user.name" --mode expression --json',
-    ],
-  },
-  {
-    command: "set-text-content",
-    description:
-      'Replace all text content on an element instance with operation "set", or remove it with operation "reset"',
-    examples: [
-      'MCP tool: set-text-content {"operation":"set","instanceId":"instance-id","text":"Launch faster","mode":"text"}',
-      'MCP tool: set-text-content {"operation":"reset","instanceId":"instance-id"}',
     ],
   },
   {
@@ -602,61 +586,6 @@ const curatedPublicApiOperationDocumentation = [
       "webstudio list-resources --json",
       "webstudio list-resources --scope-instance body-id --json",
     ],
-  },
-  {
-    command: "list-assets-resources",
-    description: "List Assets system resources and their query configuration.",
-    examples: [
-      "webstudio list-assets-resources --json",
-      "webstudio list-assets-resources --scope-instance body-id --json",
-    ],
-  },
-  {
-    command: "get-assets-resource",
-    description:
-      "Inspect one Assets system resource and its query configuration.",
-    requiredOptions: ["resource", "json"],
-    examples: ["webstudio get-assets-resource --resource resource-id --json"],
-  },
-  {
-    command: "create-assets-resource",
-    description:
-      'Create a scoped Assets resource. Omit query to use the minimal default query. For an explicit query, minimize the content database by selecting only fields the page renders, keeping includeMetadata false, and using content mode none. Use markdown-body-ref when querying a Markdown body directly; it requires storage-backed document resolution and never embeds the body in the content database. A structured document may instead select a field such as { "$ref": "./article.md#body" }. Preview concrete queries and inspect size diagnostics before saving.',
-    requiredOptions: ["input", "json"],
-    examples: [
-      "webstudio create-assets-resource --input assets-resource.json --json",
-    ],
-  },
-  {
-    command: "update-assets-resource",
-    description:
-      'Update an Assets resource. Set query to null to restore the minimal default query. Keep explicit queries storage-efficient by selecting only rendered fields, keeping includeMetadata false, and using content mode none. Use markdown-body-ref for a directly queried Markdown body; it requires storage-backed document resolution and never embeds the body in the content database. A structured document may instead select a field such as { "$ref": "./article.md#body" }.',
-    requiredOptions: ["input", "json"],
-    examples: [
-      "webstudio update-assets-resource --input assets-resource-update.json --json",
-    ],
-  },
-  {
-    command: "validate-asset-query",
-    description:
-      "Validate a structured Assets query and return its referenced dynamic fields and bounded operation counts.",
-    examples: [
-      'webstudio validate-asset-query \'{"query":{"where":{"all":[{"field":["properties","slug"],"operator":"eq","value":"hello-world"}]},"limit":1}}\'',
-    ],
-  },
-  {
-    command: "preview-asset-query",
-    description:
-      "Run an authenticated structured Assets query against indexed metadata, optionally loading bounded file content. Returns renderable results in data and non-bindable preview statistics in __diagnostics__. Before saving a query, inspect usedBytes, maxBytes, unboundedBytes, and truncated; reduce selected fields, candidate files, or embedded content when usage approaches the limit.",
-    examples: [
-      "webstudio preview-asset-query --input asset-query-preview.json --json",
-    ],
-  },
-  {
-    command: "get-asset-field-catalog",
-    description:
-      "Get standard fields plus dynamic Markdown frontmatter and JSON fields with observed types, occurrence counts, optionality, and mixed-type state.",
-    examples: ["webstudio get-asset-field-catalog --json"],
   },
   {
     command: "create-resource",

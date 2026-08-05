@@ -2,10 +2,7 @@ import { describe, test, expect } from "vitest";
 import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import { javascript } from "@codemirror/lang-javascript";
-import {
-  allowedArrayMethods,
-  allowedStringMethods,
-} from "@webstudio-is/expression";
+import { allowedArrayMethods, allowedStringMethods } from "@webstudio-is/sdk";
 import {
   completionPath,
   formatValue,

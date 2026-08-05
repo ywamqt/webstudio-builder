@@ -1,17 +1,4 @@
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
 import type { WsComponentMeta } from "@webstudio-is/sdk";
-
-export type FrameworkOptions = { preserveTemplates?: boolean };
-export const routeTemplatesDirectory = join("app", "route-templates");
-
-export const cleanupFrameworkTemplates = async ({
-  preserveTemplates = false,
-}: FrameworkOptions = {}) => {
-  if (preserveTemplates === false) {
-    await rm(routeTemplatesDirectory, { recursive: true, force: true });
-  }
-};
 
 type FrameworkTemplateEntry = {
   file: string;
@@ -25,10 +12,7 @@ export type Framework = {
   components: Record<string, string>;
   // instance.tag: "importSource:importSpecifier"
   tags: Record<string, string>;
-  html: (params: {
-    pagePath: string;
-    prerenderPaths?: readonly string[];
-  }) => FrameworkTemplateEntry[];
+  html: (params: { pagePath: string }) => FrameworkTemplateEntry[];
   xml: (params: { pagePath: string }) => FrameworkTemplateEntry[];
   text: (params: { pagePath: string }) => FrameworkTemplateEntry[];
   defaultSitemap: () => FrameworkTemplateEntry[];

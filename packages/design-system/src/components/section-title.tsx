@@ -60,7 +60,7 @@ const titleButtonStyle = css(titleButtonLayoutStyle, {
 
 const suffixSlotStyle = css({
   position: "absolute",
-  right: theme.spacing[5],
+  right: theme.spacing[4],
   top: theme.spacing[4],
 });
 

@@ -7,12 +7,8 @@ import {
   loadBuildById,
   loadDevBuildByProjectId,
 } from "@webstudio-is/project-build/server";
-import { createBuildContentCompilationPlan } from "@webstudio-is/project-build";
 import { collectFontFamiliesFromStyleDecls } from "@webstudio-is/project-build/runtime";
-import {
-  loadAssetDataByProject,
-  preparePublishedAssetData,
-} from "@webstudio-is/asset-uploader/server";
+import { loadAssetDataByProject } from "@webstudio-is/asset-uploader/index.server";
 import type { AppContext } from "@webstudio-is/trpc-interface/index.server";
 import {
   findPageByIdOrPath,
@@ -24,8 +20,6 @@ import {
 import { serializePages } from "@webstudio-is/project-migrations/pages";
 import { loadById } from "@webstudio-is/project/index.server";
 import { getUserById } from "./user.server";
-import { createAssetClient } from "../asset-client";
-import { getContentDatabaseMaxBytes } from "~/services/content-database.server";
 
 const getPair = <Item extends { id: string }>(item: Item): [string, Item] => [
   item.id,
@@ -159,35 +153,12 @@ const addProjectMetadata = async (
       ? undefined
       : await getUserById(context, project.userId);
 
-  const assetRequirements = createBuildContentCompilationPlan(data.build);
-  let assetIndex: PublishedProjectBundle["assetIndex"];
-  let publishedAssets = data.assets;
-  let publishedAssetFolders = data.assetFolders;
-  if (assetRequirements !== undefined) {
-    const publishedAssetData = await preparePublishedAssetData({
-      projectId: project.id,
-      context,
-      assetStore: createAssetClient(),
-      contentDatabaseMaxBytes: getContentDatabaseMaxBytes(),
-      plan: assetRequirements,
-      retainedAssetIds: data.assets
-        .filter((asset) => asset.type === "font")
-        .map((asset) => asset.id),
-    });
-    assetIndex = publishedAssetData.artifact;
-    publishedAssets = publishedAssetData.assets;
-    publishedAssetFolders = publishedAssetData.assetFolders;
-  }
-
   return {
     ...data,
-    assets: publishedAssets,
-    assetFolders: publishedAssetFolders,
     bundleVersion,
     user: user ? { email: user.email } : undefined,
     projectDomain: project.domain,
     projectTitle: project.title,
-    assetIndex,
   };
 };
 

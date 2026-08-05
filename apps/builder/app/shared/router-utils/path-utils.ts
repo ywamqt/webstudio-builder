@@ -1,5 +1,4 @@
 import type { AUTH_PROVIDERS } from "~/shared/session";
-import { getAssetUploadApiUrl } from "@webstudio-is/sdk/runtime";
 import { getAuthorizationServerOrigin } from "./origins";
 import type { BuilderMode } from "../nano-states/misc";
 
@@ -16,7 +15,7 @@ const searchParams = (params: Record<string, string | undefined | null>) => {
 
 export type BuilderLinkParams = {
   pageId?: string;
-  instanceSelector?: readonly string[];
+  instanceId?: string;
   authToken?: string;
   pageHash?: string;
   mode?: BuilderMode;
@@ -25,7 +24,7 @@ export type BuilderLinkParams = {
 
 export const builderPath = ({
   pageId,
-  instanceSelector,
+  instanceId,
   authToken,
   pageHash,
   mode,
@@ -33,7 +32,7 @@ export const builderPath = ({
 }: BuilderLinkParams = {}) => {
   return `/${searchParams({
     pageId,
-    instance: instanceSelector?.join(","),
+    instanceId,
     authToken,
     pageHash,
     mode,
@@ -124,6 +123,10 @@ export const authPath = ({
   provider: "google" | "github" | "dev";
 }) => `/auth/${provider}`;
 
+export const restAssetsPath = () => {
+  return `/rest/assets`;
+};
+
 export const restAssetsUploadPath = ({
   name,
   width,
@@ -141,20 +144,18 @@ export const restAssetsUploadPath = ({
     urlSearchParams.set("height", String(height));
   }
 
-  const query = urlSearchParams.toString();
-  if (query !== "") {
-    return `${getAssetUploadApiUrl(name)}?${query}`;
+  if (urlSearchParams.size > 0) {
+    return `/rest/assets/${name}?${urlSearchParams.toString()}`;
   }
 
-  return getAssetUploadApiUrl(name);
+  return `/rest/assets/${name}`;
 };
 
 export const getCanvasUrl = () => {
   return `/canvas`;
 };
 
-export const restResourcesLoader = ({ diagnostics = false } = {}) =>
-  `/rest/resources-loader${diagnostics ? "?diagnostics=true" : ""}`;
+export const restResourcesLoader = () => `/rest/resources-loader`;
 
 export const marketplacePath = (method: string) =>
   `/builder/marketplace/${method}`;

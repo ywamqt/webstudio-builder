@@ -20,3 +20,9 @@ export type UploadingAssetContainer = {
  * Assets that can be shown in the UI
  */
 export type AssetContainer = UploadedAssetContainer | UploadingAssetContainer;
+
+export type AssetActionResponse = {
+  uploadedAssets?: Array<Asset>;
+  deletedAssets?: Array<Asset>;
+  errors?: string;
+};

@@ -865,7 +865,10 @@ describe("data store helpers", () => {
       upsertResult?.result.resourceId,
       "resource id"
     );
-    expect(upsertResult?.result.dataSourceId).toBeUndefined();
+    const dataSourceId = expectGeneratedId(
+      upsertResult?.result.dataSourceId,
+      "resource data source id"
+    );
     const propId = upsertResult?.result.propIds[0];
     expectGeneratedId(propId, "resource prop id");
 
@@ -877,7 +880,15 @@ describe("data store helpers", () => {
         url: `"https://example.com/leads"`,
       })
     );
-    expect($dataSources.get()).toEqual(new Map());
+    expect($dataSources.get().get(dataSourceId)).toEqual(
+      expect.objectContaining({
+        id: dataSourceId,
+        type: "resource",
+        resourceId,
+        name: "leadResponse",
+        scopeInstanceId: "body",
+      })
+    );
     expect($props.get().get(propId ?? "")).toEqual(
       expect.objectContaining({
         instanceId: "body",
@@ -905,7 +916,11 @@ describe("data store helpers", () => {
         url: `"https://example.com/customers"`,
       })
     );
-    expect($dataSources.get()).toEqual(new Map());
+    expect($dataSources.get().get(dataSourceId)).toEqual(
+      expect.objectContaining({
+        name: "customerLeadResponse",
+      })
+    );
 
     executeRuntimeMutation({
       id: "resources.delete",
@@ -916,7 +931,7 @@ describe("data store helpers", () => {
     });
 
     expect($resources.get().has(resourceId)).toEqual(false);
-    expect($dataSources.get()).toEqual(new Map());
+    expect($dataSources.get().has(dataSourceId)).toEqual(false);
     expect($props.get().has(propId ?? "")).toEqual(false);
   });
 

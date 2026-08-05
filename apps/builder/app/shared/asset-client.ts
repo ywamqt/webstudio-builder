@@ -1,17 +1,15 @@
 import * as path from "node:path";
 import { maxSize } from "@webstudio-is/asset-uploader";
 import {
-  createFsAssetObjectStore,
-  createS3AssetObjectStore,
-} from "@webstudio-is/asset-uploader/server";
+  createFsClient,
+  createS3Client,
+} from "@webstudio-is/asset-uploader/index.server";
 import env from "~/env/env.server";
 
 export const fileUploadPath = "public/cgi/asset";
 
-export const getMaxAssetUploadSize = () => maxSize.parse(env.MAX_UPLOAD_SIZE);
-
 export const createAssetClient = () => {
-  const maxUploadSize = getMaxAssetUploadSize();
+  const maxUploadSize = maxSize.parse(env.MAX_UPLOAD_SIZE);
   if (
     env.S3_ENDPOINT !== undefined &&
     env.S3_REGION !== undefined &&
@@ -19,7 +17,7 @@ export const createAssetClient = () => {
     env.S3_SECRET_ACCESS_KEY !== undefined &&
     env.S3_BUCKET !== undefined
   ) {
-    return createS3AssetObjectStore({
+    return createS3Client({
       endpoint: env.S3_ENDPOINT,
       region: env.S3_REGION,
       accessKeyId: env.S3_ACCESS_KEY_ID,
@@ -29,7 +27,7 @@ export const createAssetClient = () => {
       maxUploadSize,
     });
   } else {
-    return createFsAssetObjectStore({
+    return createFsClient({
       maxUploadSize,
       fileDirectory: path.join(process.cwd(), fileUploadPath),
     });

@@ -86,13 +86,6 @@ const additionalShortcuts = [
     category: "Top bar",
     defaultHotkeys: ["1-9"],
   },
-  {
-    name: "selectAllAssets",
-    label: "Select all assets and folders",
-    description: "Select all currently rendered assets and folders",
-    category: "Panels",
-    defaultHotkeys: ["meta+a", "ctrl+a"],
-  },
 ];
 
 const leftCategoryOrder = ["General", "Top bar", "Panels", "Style panel"];
@@ -195,7 +188,6 @@ export const KeyboardShortcutsDialog = () => {
       "toggleComponentsPanel",
       "toggleNavigatorPanel",
       "openStylePanel",
-      "selectAllAssets",
       "openSettingsPanel",
     ],
 

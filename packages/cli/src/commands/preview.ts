@@ -18,16 +18,11 @@ import { chdir, cwd } from "node:process";
 import { promisify } from "node:util";
 import { log } from "@clack/prompts";
 import { builderNamespaces } from "@webstudio-is/project-build/contracts";
-import {
-  projectPreviewSources,
-  type ProjectPreviewSource,
-} from "@webstudio-is/project-build/visual";
-import { generatedFilesManifest, prebuild } from "../prebuild";
+import { prebuild } from "../prebuild";
 import { LOCAL_CONFIG_FILE, LOCAL_DATA_FILE } from "../config";
 import { HandledCliError } from "../errors";
 import {
   getPreviewUrl,
-  getNpmInvocation,
   previewBuildCacheMarker,
   runPreviewBuild,
   startPreviewServer,
@@ -42,19 +37,25 @@ import { sync, defaultSyncDependencies, type SyncDependencies } from "./sync";
 import { resolveApiConnection } from "../api-connection";
 import {
   createCliProjectSession,
-  loadCliProjectSessionAssetIndex,
   writeCliProjectSessionDataFile,
 } from "../project-session";
 import { LOCAL_ASSETS_DIR } from "../asset-files";
 import packageJson from "../../package.json" with { type: "json" };
-import { createExclusiveAsyncRunner } from "../async-utils";
 
-export const previewDefaultTemplate = ["react-router"] as const;
-export const previewSources = projectPreviewSources;
-export type PreviewSource = ProjectPreviewSource;
+export const previewDefaultTemplate = ["defaults", "react-router"] as const;
+export const previewSources = ["local", "session"] as const;
+export type PreviewSource = (typeof previewSources)[number];
 
 const getPreviewTemplates = (template: string[]) => {
-  return template.length === 0 ? [...previewDefaultTemplate] : [...template];
+  const templates =
+    template.length === 0 ? [...previewDefaultTemplate] : [...template];
+  if (
+    templates.includes("react-router") &&
+    templates.includes("defaults") === false
+  ) {
+    templates.unshift("defaults");
+  }
+  return templates;
 };
 
 export const previewOptions = (yargs: CommonYargsArgv) =>
@@ -178,8 +179,6 @@ type PreviewDependencyOperations = {
     type: "dir" | "junction"
   ) => Promise<void>;
   writeFile: (path: string, data: string) => Promise<void>;
-  nodeExecPath: string;
-  npmExecPath?: string;
   platform: NodeJS.Platform;
 };
 
@@ -198,8 +197,6 @@ export const ensurePreviewDependencies = async (
     rm,
     symlink,
     writeFile,
-    nodeExecPath: process.execPath,
-    npmExecPath: process.env.npm_execpath,
     platform: process.platform,
     ...dependencies,
   };
@@ -265,20 +262,19 @@ export const ensurePreviewDependencies = async (
     }
   }
 
-  const installArgs = [
-    "install",
-    "--legacy-peer-deps",
-    "--no-audit",
-    "--no-fund",
-    "--package-lock=false",
-    "--loglevel=error",
-  ];
-  const invocation = getNpmInvocation(installArgs, operations);
-
   try {
-    await operations.execFile(invocation.command, invocation.args, {
-      cwd: previewProjectDir,
-    });
+    await operations.execFile(
+      operations.platform === "win32" ? "npm.cmd" : "npm",
+      [
+        "install",
+        "--legacy-peer-deps",
+        "--no-audit",
+        "--no-fund",
+        "--package-lock=false",
+        "--loglevel=error",
+      ],
+      { cwd: previewProjectDir }
+    );
   } catch (error) {
     throw new Error(
       "PREVIEW_DEPENDENCY_INSTALL_FAILED: Could not install the generated preview dependencies. Check the npm/network configuration, then reinstall or update webstudio if the problem persists.",
@@ -309,12 +305,33 @@ const runInDirectory = async <Result>(
   }
 };
 
-const runExclusive = createExclusiveAsyncRunner();
+let runInDirectoryQueue = Promise.resolve();
 
-const copyPreviewProjectFiles = async (
-  projectDir: string,
-  previewProjectDir: string
-) => {
+const runExclusive = async <Result>(callback: () => Promise<Result>) => {
+  const previousRun = runInDirectoryQueue;
+  let releaseCurrentRun: () => void = () => undefined;
+  runInDirectoryQueue = new Promise((resolve) => {
+    releaseCurrentRun = resolve;
+  });
+  await previousRun.catch(() => undefined);
+  try {
+    return await callback();
+  } finally {
+    releaseCurrentRun();
+  }
+};
+
+const preparePreviewDirectory = async (projectDir: string) => {
+  const previewProjectDir = getPreviewProjectDir(projectDir);
+  await mkdir(previewProjectDir, { recursive: true });
+  const entries = await readdir(previewProjectDir);
+  await Promise.all(
+    entries
+      .filter((entry) => entry !== "node_modules")
+      .map((entry) =>
+        rm(join(previewProjectDir, entry), { recursive: true, force: true })
+      )
+  );
   await mkdir(join(previewProjectDir, ".webstudio"), { recursive: true });
   for (const file of localPreviewFiles) {
     await copyFile(join(projectDir, file), join(previewProjectDir, file)).catch(
@@ -330,35 +347,6 @@ const copyPreviewProjectFiles = async (
       }
     );
   }
-};
-
-const hasIncrementalGenerationInputs = async (previewProjectDir: string) => {
-  return await Promise.all([
-    access(join(previewProjectDir, "app", "route-templates")),
-    access(join(previewProjectDir, generatedFilesManifest)),
-  ]).then(
-    () => true,
-    () => false
-  );
-};
-
-const preparePreviewDirectory = async (
-  projectDir: string,
-  preserveGeneratedProject: boolean
-) => {
-  const previewProjectDir = getPreviewProjectDir(projectDir);
-  await mkdir(previewProjectDir, { recursive: true });
-  if (preserveGeneratedProject === false) {
-    const entries = await readdir(previewProjectDir);
-    await Promise.all(
-      entries
-        .filter((entry) => entry !== "node_modules")
-        .map((entry) =>
-          rm(join(previewProjectDir, entry), { recursive: true, force: true })
-        )
-    );
-  }
-  await copyPreviewProjectFiles(projectDir, previewProjectDir);
   return previewProjectDir;
 };
 
@@ -441,21 +429,13 @@ export const preparePreviewProject = async ({
   getBuildCacheKey = getPreviewBuildCacheKey,
   silent = false,
   includeDraftPages = false,
-  preserveGeneratedProject = false,
-  prepareForIncrementalGeneration = false,
   prepareSessionDataFile = async () => {
     const connection = await resolveApiConnection();
     const session = createCliProjectSession({ connection });
     await session.initialize();
     const snapshot = await session.ensureNamespaces(builderNamespaces);
-    const assetIndex = await loadCliProjectSessionAssetIndex(
-      snapshot,
-      connection,
-      join(cwd(), LOCAL_ASSETS_DIR)
-    );
     await writeCliProjectSessionDataFile(snapshot, undefined, {
       origin: connection.origin,
-      assetIndex,
     });
   },
 }: {
@@ -471,8 +451,6 @@ export const preparePreviewProject = async ({
   getBuildCacheKey?: typeof getPreviewBuildCacheKey;
   silent?: boolean;
   includeDraftPages?: boolean;
-  preserveGeneratedProject?: boolean;
-  prepareForIncrementalGeneration?: boolean;
   prepareSessionDataFile?: () => Promise<void>;
 }): Promise<{
   cwd: string;
@@ -517,16 +495,12 @@ export const preparePreviewProject = async ({
     template,
     includeDraftPages,
   });
-  const hasIncrementalInputs =
-    await hasIncrementalGenerationInputs(previewProjectDir);
-  const canReuseCachedProject =
-    prepareForIncrementalGeneration === false || hasIncrementalInputs;
   if (buildCacheKey !== undefined) {
     const cachedBuildKey = await readFile(
       join(previewProjectDir, previewBuildCacheMarker),
       "utf8"
     ).catch(() => undefined);
-    if (cachedBuildKey === buildCacheKey && canReuseCachedProject) {
+    if (cachedBuildKey === buildCacheKey) {
       await ensureDependencies(previewProjectDir);
       return { cwd: previewProjectDir, buildCacheKey, buildRequired: false };
     }
@@ -534,21 +508,13 @@ export const preparePreviewProject = async ({
 
   if (generate) {
     await runExclusive(async () => {
-      const reuseGeneratedProject =
-        preserveGeneratedProject && hasIncrementalInputs;
-      await preparePreviewDirectory(projectDir, reuseGeneratedProject);
+      await preparePreviewDirectory(projectDir);
       await runInDirectory(previewProjectDir, async () => {
         await prebuildProject({
           assets,
           template: getPreviewTemplates(template),
-          previewIdentity: true,
-          sourceAssetsDirectory: join(projectDir, LOCAL_ASSETS_DIR),
           ...(silent ? { silent: true } : {}),
           ...(includeDraftPages ? { includeDraftPages: true } : {}),
-          ...(reuseGeneratedProject ? { incremental: true } : {}),
-          ...(prepareForIncrementalGeneration
-            ? { preserveRouteTemplates: true }
-            : {}),
         });
       });
       await ensureDependencies(previewProjectDir);

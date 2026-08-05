@@ -75,23 +75,6 @@ describe("build router project bundle compatibility", () => {
   });
 });
 
-describe("content database publish diagnostics", () => {
-  test("uses the same edit permit as publishing", async () => {
-    const hasProjectPermit = vi
-      .spyOn(authorizeProject, "hasProjectPermit")
-      .mockResolvedValue(false);
-    const caller = buildRouter.createCaller({} as never);
-
-    await expect(
-      caller.contentDatabasePublishDiagnostics({ projectId: "project-id" })
-    ).rejects.toThrow("permission to edit this project");
-    expect(hasProjectPermit).toHaveBeenCalledWith(
-      { projectId: "project-id", permit: "edit" },
-      expect.anything()
-    );
-  });
-});
-
 describe("build router jsx fragment conversion", () => {
   test("converts Webstudio JSX through the shared runtime converter", async () => {
     vi.spyOn(authorizeProject, "hasProjectPermit").mockResolvedValue(true);

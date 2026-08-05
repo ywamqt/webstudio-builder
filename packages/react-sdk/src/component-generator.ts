@@ -13,6 +13,7 @@ import {
   parseComponentName,
   generateExpression,
   decodeDataSourceVariable,
+  transpileExpression,
   blockComponent,
   blockTemplateComponent,
   collectionComponent,
@@ -20,7 +21,6 @@ import {
   getIndexesWithinAncestors,
   elementComponent,
 } from "@webstudio-is/sdk";
-import { transpileExpression } from "@webstudio-is/expression";
 import { indexProperty, tagProperty } from "@webstudio-is/sdk/runtime";
 import { isAttributeNameSafe, showAttribute } from "./props";
 import { standardAttributesToReactProps } from "./__generated__/standard-attributes";

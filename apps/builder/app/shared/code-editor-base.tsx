@@ -113,10 +113,7 @@ const editorContentStyle = css({
   "&:focus-within": {
     borderColor: theme.colors.borderFocus,
   },
-  '&[data-chromeless="true"]': {
-    borderRadius: 0,
-  },
-  '&[data-chromeless="true"]:not([data-invalid="true"]):is(:hover, :focus-within)':
+  '&[data-border="hidden"]:not([data-invalid="true"]):is(:hover, :focus-within)':
     {
       borderColor: "transparent",
     },
@@ -277,7 +274,7 @@ type EditorContentProps = {
   autoFocus?: boolean;
   invalid?: boolean;
   showShortcuts?: boolean;
-  chromeless?: boolean;
+  showBorder?: boolean;
   value?: string;
   onChange: (value: string) => void;
   onChangeComplete: (value: string) => void;
@@ -290,7 +287,7 @@ export const EditorContent = ({
   autoFocus = false,
   invalid = false,
   showShortcuts = false,
-  chromeless = false,
+  showBorder = true,
   value,
   onChange,
   onChangeComplete,
@@ -477,7 +474,7 @@ export const EditorContent = ({
     <div
       className={editorContentStyle()}
       data-invalid={invalid}
-      data-chromeless={chromeless ? "true" : undefined}
+      data-border={showBorder ? undefined : "hidden"}
       ref={editorRef}
     >
       {showShortcuts && (

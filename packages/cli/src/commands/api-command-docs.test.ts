@@ -85,15 +85,10 @@ const createMetadataOnlyMcpAdapter = () =>
       installUrl: "",
       warnings: [],
     }),
-    startPreview: async () => ({
-      url: "http://localhost:5173",
-      running: true,
-      mode: "iterative",
-    }),
+    startPreview: async () => ({ url: "http://localhost:5173", running: true }),
     getPreviewStatus: async () => ({
       url: "http://localhost:5173",
       running: true,
-      mode: "iterative",
     }),
   });
 
@@ -150,7 +145,7 @@ test("documents every MCP session and vision tool in use-case scenarios", () => 
     expect.arrayContaining([
       "meta.index",
       "meta.guide",
-      "meta.get-more-tools",
+      "meta.get_more_tools",
       "import",
       "status",
       "refresh",
@@ -173,79 +168,6 @@ test("documents MCP use cases with JSON inputs instead of CLI flags", () => {
     const match = line.match(/^- MCP tool: [a-z0-9._-]+ (.+)$/);
     expect(match, line).not.toBeNull();
     expect(() => JSON.parse(match?.[1] ?? "")).not.toThrow();
-  }
-});
-
-test("does not require publishing or sync before MCP editing", () => {
-  for (const document of ["manual-llm", "manual-mcp"] as const) {
-    const manual = readCliDoc(document);
-    const prose = manual.replaceAll(/\s+/g, " ");
-    expect(prose).toContain("local CLI");
-    expect(prose).toContain("connect");
-    expect(prose).toContain("optional");
-    expect(prose).toContain("restart");
-    expect(prose).not.toContain(
-      "followed by `webstudio sync`, then retry `webstudio connect"
-    );
-  }
-  const llmManual = readCliDoc("manual-llm").replaceAll(/\s+/g, " ");
-  expect(llmManual).toContain(
-    "MCP reads and edits the latest editable Builder build directly"
-  );
-  expect(llmManual).toContain(
-    "including for projects that have never been published"
-  );
-});
-
-test("keeps JSX examples readable inside JSON inputs", () => {
-  for (const document of [
-    "api-use-cases",
-    "manual-llm",
-    "manual-mcp",
-  ] as const) {
-    expect(readCliDoc(document)).not.toContain('ws:tag=\\"');
-  }
-});
-
-test("documents the Assets result shape", () => {
-  for (const document of ["api-use-cases", "manual-llm"] as const) {
-    const contents = readCliDoc(document);
-    expect(contents).toContain("<dataSourceName>.data");
-    expect(contents).toContain("<dataSourceName>.meta");
-    expect(contents).toContain("posts.data");
-    expect(contents).toContain("post.data");
-    expect(contents).toContain("content.text");
-  }
-});
-
-test("documents storage-efficient Assets queries for agents", () => {
-  for (const document of ["api-use-cases", "manual-llm"] as const) {
-    const contents = readCliDoc(document);
-    expect(contents).toContain('output.mode:"fields"');
-    expect(contents).toContain("only fields");
-    expect(contents).toContain("includeMetadata:false");
-    expect(contents).toContain("__diagnostics__.query");
-    expect(contents).toContain("__diagnostics__.database");
-    expect(contents).toContain("must not be summed");
-    expect(contents).toContain("truncated");
-  }
-});
-
-test("directs agents to deferred Markdown bodies", () => {
-  for (const document of ["api-use-cases", "manual-llm"] as const) {
-    const contents = readCliDoc(document);
-    expect(contents).toContain('content.mode:"markdown-body-ref"');
-    expect(contents).toContain("document reference");
-    expect(contents).toContain("selected Markdown");
-    expect(contents).toContain("content.text");
-  }
-
-  const tools = createMetadataOnlyMcpAdapter().listTools();
-  for (const name of ["create-assets-resource", "update-assets-resource"]) {
-    const description = tools.find((tool) => tool.name === name)?.description;
-    expect(description).toContain("markdown-body-ref");
-    expect(description).toContain("document reference");
-    expect(description).toContain("item.content.text");
   }
 });
 

@@ -17,8 +17,6 @@ import type { BuilderState } from "../state/builder-state";
 import {
   addAsset,
   assetAddInput,
-  assetUpdateInput,
-  assetDeleteInput,
   calculateUsagesByAssetId,
   createAssetDeletePayload,
   createAssetReplacementPayload,
@@ -51,19 +49,6 @@ const imageAsset = (id: string, name = `${id}.png`): Asset =>
     createdAt: "2026-01-01T00:00:00.000Z",
     description: null,
     meta: { width: 100, height: 100 },
-  }) as Asset;
-
-const fontAsset = (id: string): Asset =>
-  ({
-    id,
-    projectId: "project",
-    name: `${id}.woff2`,
-    type: "font",
-    size: 1,
-    format: "woff2",
-    createdAt: "2026-01-01T00:00:00.000Z",
-    description: null,
-    meta: { family: "Rajdhani", style: "normal", weight: 600 },
   }) as Asset;
 
 const assetProp: Prop = {
@@ -420,13 +405,6 @@ describe("asset runtime operations", () => {
     ).toThrow("Assets are still referenced: asset");
   });
 
-  test("rejects empty asset id prefixes", () => {
-    expect(() => assetDeleteInput.parse({ assetIdPrefixes: [""] })).toThrow();
-    expect(() =>
-      assetDeleteInput.parse({ assetIdsOrPrefixes: ["  "] })
-    ).toThrow();
-  });
-
   test("builds asset delete mutations", () => {
     expect(
       deleteAssets(state, { assetIdsOrPrefixes: ["unused"] })
@@ -437,42 +415,6 @@ describe("asset runtime operations", () => {
         { namespace: "assets", patches: [{ op: "remove", path: ["unused"] }] },
       ],
     });
-  });
-
-  test("does not treat exact asset ids as prefixes", () => {
-    expect(
-      deleteAssets(
-        {
-          ...state,
-          assets: new Map([
-            ["unused", { ...state.assets.get("unused")!, id: "unused" }],
-            [
-              "unused-child",
-              { ...state.assets.get("unused")!, id: "unused-child" },
-            ],
-          ]),
-        },
-        { assetIds: ["unused"] }
-      ).result
-    ).toEqual({ assetIds: ["unused"] });
-  });
-
-  test("deletes assets by an explicit prefix", () => {
-    expect(
-      deleteAssets(
-        {
-          ...state,
-          assets: new Map([
-            ["unused", { ...state.assets.get("unused")!, id: "unused" }],
-            [
-              "unused-child",
-              { ...state.assets.get("unused")!, id: "unused-child" },
-            ],
-          ]),
-        },
-        { assetIdPrefixes: ["unused"] }
-      ).result
-    ).toEqual({ assetIds: ["unused", "unused-child"] });
   });
 });
 const createPages = ({
@@ -1101,77 +1043,6 @@ test("creates asset delete payload", () => {
 });
 
 describe("updateAsset", () => {
-  test("updates font metadata without discarding the other fields", () => {
-    const result = updateAsset(
-      { assets: new Map([["font-1", fontAsset("font-1")]]) },
-      {
-        assetId: "font-1",
-        values: { meta: { family: "Rajdhani Display" } },
-      }
-    );
-
-    expect(result.payload).toEqual([
-      {
-        namespace: "assets",
-        patches: [
-          {
-            op: "replace",
-            path: ["font-1", "meta"],
-            value: { family: "Rajdhani Display", style: "normal", weight: 600 },
-          },
-        ],
-      },
-    ]);
-  });
-
-  test("rejects invalid or unsupported asset metadata", () => {
-    expect(() =>
-      updateAsset(
-        { assets: new Map([["font-1", fontAsset("font-1")]]) },
-        {
-          assetId: "font-1",
-          values: { meta: { weight: "heavy" as never } },
-        }
-      )
-    ).toThrow("Invalid metadata for font asset");
-
-    expect(() =>
-      updateAsset(
-        { assets: new Map([["asset-1", imageAsset("asset-1")]]) },
-        { assetId: "asset-1", values: { meta: { family: "Roboto" } } }
-      )
-    ).toThrow("Invalid metadata for image asset");
-  });
-
-  test("accepts metadata through the public input schema", () => {
-    expect(
-      assetUpdateInput.parse({
-        assetId: "font-1",
-        values: { meta: { family: "Rajdhani Display", weight: 600 } },
-      })
-    ).toEqual({
-      assetId: "font-1",
-      values: { meta: { family: "Rajdhani Display", weight: 600 } },
-    });
-
-    expect(
-      assetUpdateInput.parse({
-        assetId: "image-1",
-        values: { meta: { width: 1200 } },
-      })
-    ).toEqual({
-      assetId: "image-1",
-      values: { meta: { width: 1200 } },
-    });
-
-    expect(
-      assetUpdateInput.safeParse({
-        assetId: "file-1",
-        values: { meta: { arbitrary: true } },
-      }).success
-    ).toBe(false);
-  });
-
   test("updates filename and description", () => {
     const result = updateAsset(
       {

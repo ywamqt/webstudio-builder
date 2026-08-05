@@ -1,10 +1,9 @@
 services:
   db:
-    image: public.ecr.aws/supabase/postgres:15.8.1.085
+    image: ghcr.io/supabase/postgres:15.1.1.55
     environment:
-      # The image initializes its required roles as supabase_admin. Supplying
-      # POSTGRES_USER overrides that bootstrap user and breaks its init scripts.
       POSTGRES_DB: ${POSTGRES_DB:?}
+      POSTGRES_USER: ${POSTGRES_USER:?}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "${PGPORT:?}:5432"

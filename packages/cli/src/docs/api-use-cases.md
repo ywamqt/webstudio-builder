@@ -53,15 +53,15 @@ Commands:
 - webstudio man llm --json
 - MCP tool: meta.index {}
 - MCP tool: meta.guide {"brief":"Create a pricing page"}
-- MCP tool: meta.get-more-tools {"brief":"update-styles"}
+- MCP tool: meta.get_more_tools {"brief":"update-styles"}
 - webstudio mcp list-resources
 - webstudio mcp read-resource webstudio://project/guide
 - webstudio mcp read-resource webstudio://project/expressions
 
 Notes:
 
-- Use `webstudio schema mcp` for a compact machine-readable MCP tool overview. Add `--verbose` or use focused `meta.get-more-tools` calls only when exact input schemas are needed.
-- Use focused MCP tools for discovery first: `meta.index`, `meta.guide`, `meta.get-more-tools`, `components.list`, `components.summary`, `components.search`, `components.get`, `templates.list`, and `templates.get`. Protocol clients can use `resources/list` and `resources/read`; shell agents can use `webstudio mcp list-resources` and `webstudio mcp read-resource <uri>`. Read longer resources such as `webstudio://project/tools` and `webstudio://project/components` only when focused tools are insufficient.
+- Use `webstudio schema mcp` for a compact machine-readable MCP tool overview. Add `--verbose` or use focused `meta.get_more_tools` calls only when exact input schemas are needed.
+- Use focused MCP tools for discovery first: `meta.index`, `meta.guide`, `meta.get_more_tools`, `components.list`, `components.summary`, `components.search`, `components.get`, `templates.list`, and `templates.get`. Protocol clients can use `resources/list` and `resources/read`; shell agents can use `webstudio mcp list-resources` and `webstudio mcp read-resource <uri>`. Read longer resources such as `webstudio://project/tools` and `webstudio://project/components` only when focused tools are insufficient.
 - `components.summary` returns counts by default; request `{"detail":"components","limit":20}` for paginated entries. Registry list tools return compact metadata, while `components.get` and `templates.get` return focused full details.
 - Read `webstudio://project/expressions` before authoring unfamiliar computed text, prop bindings, resource expressions, actions, or Collection item bindings.
 - From a shell, call one MCP tool with the shortcut form `webstudio <tool> '<json>'`, for example `webstudio components.summary`. The explicit equivalent is `webstudio mcp single-op-call <tool> '<json>'`. Use `--input-file` for large payloads.
@@ -145,9 +145,9 @@ Commands:
 
 Notes:
 
-- Use this after page/content/style mutations so a vision-capable AI can see the generated site from the current MCP session. Use `path`; never pass a Webstudio Builder/share URL or capture Builder chrome.
+- Use this after page/content/style mutations and after generated project files are current so a vision-capable AI can see the production-like generated site.
 - For multi-page work, capture every changed page by `path` through the same preview server; no click navigation is required.
-- Iterative mode is the default: after MCP mutations, path screenshots ensure generated project files are current, wait for the exact session version, and perform an ordinary page reload without Vite HMR. The preview server and browser stay alive. Use `{"mode":"production"}` only for release-like verification; rendered audit does this automatically.
+- After MCP mutations, path screenshots regenerate/restart preview as needed before capture; when preview is fresh, repeated path screenshots reuse the running server.
 - Do not call `preview.start` through one-shot `webstudio mcp single-op-call`: it is long-lived. From a shell, use `webstudio mcp run` with preview.start, screenshot, and preview.stop in one shared process, or use a real long-running MCP client.
 - From one-shot shell calls or another process, pass `baseUrl` with `path` to capture an already-running preview/site without generating, building, starting, or restarting preview.
 - Use preview.stop only in the same long-running MCP server or `webstudio mcp run` process that started preview. A separate one-shot `single-op-call` process does not own another process's preview controller.
@@ -233,20 +233,6 @@ Commands:
 Commands:
 
 - MCP tool: update-marketplace-product {"category":"pageTemplates","name":"Acme Template","thumbnailAssetId":"asset-id","author":"Acme Studio","email":"hello@example.com","website":"https://example.com","issues":"","description":"Reusable template project for Acme landing pages."}
-
-## Submit marketplace product
-
-Commands:
-
-- MCP tool: upload-asset {"asset":{"name":"marketplace-thumbnail.png","type":"image","format":"png","meta":{"width":1200,"height":630}},"assetsDir":".webstudio/assets"}
-- MCP tool: update-marketplace-product {"category":"pageTemplates","name":"Acme Template","thumbnailAssetId":"<uploadedAssetId>","author":"Acme Studio","email":"hello@example.com","website":"https://example.com","issues":"","description":"Reusable template project for Acme landing pages."}
-- MCP tool: publish {"target":"production"}
-- MCP tool: submit-marketplace-product {"acknowledgePublicSubmission":true}
-
-Notes:
-
-- Wait for the production publish to complete before submitting the product for review.
-- Submission requires complete, valid marketplace metadata.
 
 ## List redirects
 
@@ -408,7 +394,7 @@ Commands:
 
 Commands:
 
-- MCP tool: insert-fragment {"parentInstanceId":"<instanceId>","fragment":"<ws.element ws:tag='section' ws:style={css`padding: 32px;`}><ws.element ws:tag='h2'>Product OS</ws.element><radix.Switch><radix.SwitchThumb /></radix.Switch></ws.element>"}
+- MCP tool: insert-fragment {"parentInstanceId":"<instanceId>","fragment":"<ws.element ws:tag=\"section\" ws:style={css`padding: 32px;`}><ws.element ws:tag=\"h2\">Product OS</ws.element><radix.Switch><radix.SwitchThumb /></radix.Switch></ws.element>"}
 - MCP tool: insert-component {"parentInstanceId":"<instanceId>","component":"@webstudio-is/sdk-components-react-radix:Switch"}
 - MCP tool: insert-component {"parentInstanceId":"<instanceId>","component":"Form"}
 
@@ -419,7 +405,7 @@ Notes:
 - The `ws:` namespace contains specific Webstudio core components; it is not HTML-tag shorthand. Use `<ws.element ws:tag="div">` for a native `div` and `<ws.element ws:tag="form">` for a native form, never `<ws.div>` or `<ws.form>`.
 - For Webstudio's complete form structure, discover the Form component and insert its automatic template with `insert-component` using component `"Form"`.
 - MCP receives JSX as a JSON string because MCP arguments are JSON. The CLI converts it locally before the runtime mutation, so the project session receives structured Webstudio data, not JSX source.
-- In `insert-fragment` JSX, use ``ws:style={css`...`}`` for Webstudio-native CSS, or use React-style object syntax such as `style={{ padding: 24 }}` when that is simpler. Both forms create editable Webstudio style data.
+- In `insert-fragment` JSX, use `ws:style={css\`...\`}`for Webstudio-native CSS, or use React-style object syntax such as`style={{ padding: 24 }}` when that is simpler. Both forms create editable Webstudio style data.
 - Do not access host globals or dynamic code APIs in JSX fragments, including `process`, `globalThis`, `eval`, `Function`, or `constructor`.
 - Use Webstudio prop names such as `class` and `for`; do not use React aliases `className` or `htmlFor`.
 - Use Webstudio actions for event/action props, for example `onClick={new ActionValue(["event"], expression\`console.log(event)\`)}`. Do not pass JavaScript functions such as `onClick={() => ...}`.
@@ -673,12 +659,12 @@ Commands:
 - MCP tool: create-variable {"scopeInstanceId":"<instanceId>","name":"title","value":{"type":"string","value":"Hello"}}
 - MCP tool: create-variable {"scopeInstanceId":"<instanceId>","name":"count","value":{"type":"number","value":3}}
 - MCP tool: create-variable {"scopeInstanceId":"<instanceId>","name":"featured","value":{"type":"boolean","value":true}}
-- MCP tool: create-variable {"scopeInstanceId":"<instanceId>","name":"tags","value":{"type":"json","value":["news","product"]}}
+- MCP tool: create-variable {"scopeInstanceId":"<instanceId>","name":"tags","value":{"type":"string[]","value":["news","product"]}}
 - MCP tool: create-variable {"scopeInstanceId":"<instanceId>","name":"filters","value":{"type":"json","value":{"tag":"news"}}}
 
 Notes:
 
-- Data variable values support `string`, `number`, `boolean`, and `json`. Use `json` for all arrays and objects.
+- Data variable values support `string`, `number`, `boolean`, `string[]`, and `json`.
 - Parameters are internal scoped runtime values provided by pages, collections, or components. They are not a public authoring surface: do not create, update, or delete parameter records. Use data variables/resources for user-authored data, and reference documented context values such as `system` only where they are already in scope.
 
 ## Update data variable
@@ -705,9 +691,9 @@ Commands:
 Commands:
 
 - MCP tool: create-resource {"resource":{"name":"Posts","method":"get","url":"https://api.example.com/posts","headers":[]}}
-- MCP tool: create-resource {"resource":{"name":"Posts","method":"get","url":"'https://api.example.com/posts?tag=' + filters.tag","headers":[]},"scopeInstanceId":"<instanceId>","dataSourceName":"posts"}
-- MCP tool: create-resource {"resource":{"name":"Filtered Posts","method":"get","url":"https://api.example.com/posts","searchParams":[{"name":"tag","value":"filters.tag"},{"name":"source","value":{"type":"literal","value":"website"}}],"headers":[{"name":"Authorization","value":"'Bearer ' + auth.token"}]},"scopeInstanceId":"<instanceId>","dataSourceName":"posts"}
-- MCP tool: create-resource {"resource":{"name":"Post GraphQL","control":"graphql","method":"post","url":"https://api.example.com/graphql","headers":[{"name":"Content-Type","value":{"type":"literal","value":"application/json"}}],"body":"{ query: 'query Post($slug: String!) { post(slug: $slug) { title } }', variables: { slug: system.params.slug } }"},"scopeInstanceId":"<instanceId>","dataSourceName":"post"}
+- MCP tool: create-resource {"resource":{"name":"Posts","method":"get","url":"\"https://api.example.com/posts?tag=\" + filters.tag","headers":[]},"scopeInstanceId":"<instanceId>","dataSourceName":"posts"}
+- MCP tool: create-resource {"resource":{"name":"Filtered Posts","method":"get","url":"https://api.example.com/posts","searchParams":[{"name":"tag","value":"filters.tag"},{"name":"source","value":{"type":"literal","value":"website"}}],"headers":[{"name":"Authorization","value":"\"Bearer \" + auth.token"}]},"scopeInstanceId":"<instanceId>","dataSourceName":"posts"}
+- MCP tool: create-resource {"resource":{"name":"Post GraphQL","control":"graphql","method":"post","url":"https://api.example.com/graphql","headers":[{"name":"Content-Type","value":{"type":"literal","value":"application/json"}}],"body":"{ query: \"query Post($slug: String!) { post(slug: $slug) { title } }\", variables: { slug: system.params.slug } }"},"scopeInstanceId":"<instanceId>","dataSourceName":"post"}
 - MCP tool: create-resource {"resource":{"name":"Current Date","control":"system","method":"get","url":"/$resources/current-date","headers":[]},"scopeInstanceId":"<instanceId>","dataSourceName":"currentDate"}
 
 Notes:
@@ -727,37 +713,6 @@ Commands:
 
 - MCP tool: update-resource {"resourceId":"<resourceId>","values":{"url":"https://api.example.com/posts"}}
 - MCP tool: replace-resource-text {"find":"api.old.example.com","replace":"api.example.com","fields":["url"],"limit":20}
-
-## Query Markdown assets
-
-Commands:
-
-- MCP tool: get-asset-field-catalog {}
-- MCP tool: validate-asset-query {"query":{"where":{"all":[{"field":["extension"],"operator":"eq","value":"md"},{"field":["properties","draft"],"operator":"ne","value":true}]},"limit":20}}
-- MCP tool: create-assets-resource {"name":"All assets","scopeInstanceId":"<instanceId>","dataSourceName":"assets"}
-- MCP tool: create-assets-resource {"name":"Published posts","scopeInstanceId":"<instanceId>","dataSourceName":"posts","query":{"where":{"all":[{"field":["extension"],"operator":"eq","value":{"type":"literal","value":"md"}},{"field":["properties","draft"],"operator":"ne","value":{"type":"literal","value":true}}]},"sort":[{"field":["properties","publishedAt"],"direction":"desc"}],"limit":{"type":"literal","value":20},"output":{"mode":"fields","includeMetadata":false,"fields":[["properties","title"],["properties","slug"],["properties","publishedAt"],["properties","excerpt"]]},"content":{"mode":"none"}}}
-- MCP tool: create-assets-resource {"name":"Post by slug or ID","scopeInstanceId":"<instanceId>","dataSourceName":"post","query":{"where":{"all":[{"field":["extension"],"operator":"eq","value":{"type":"literal","value":"md"}},{"field":["properties","slug"],"operator":"eq","value":"system.params.slug"}]},"limit":{"type":"literal","value":1},"output":{"mode":"fields","includeMetadata":false,"fields":[["properties","title"],["properties","publishedAt"]]},"content":{"mode":"markdown-body-ref"}}}
-- MCP tool: list-assets-resources {}
-- MCP tool: get-assets-resource {"resourceId":"<resourceId>"}
-- MCP tool: update-assets-resource {"resourceId":"<resourceId>","values":{"query":null}}
-- MCP tool: preview-asset-query {"query":{"where":{"all":[{"field":["extension"],"operator":"eq","value":"md"},{"field":["properties","slug"],"operator":"eq","value":"hello-world"}]},"limit":1,"output":{"mode":"fields","includeMetadata":false,"fields":[["properties","title"]]},"content":{"mode":"markdown-body-ref"}}}
-
-Notes:
-
-- Read the field catalog before authoring unfamiliar queries. It includes dynamic schema-less frontmatter paths such as `properties.author.name`, observed types, optionality, and mixed-type state without downloading Markdown files.
-- Minimize the deployed content database by using `output.mode:"fields"` and selecting only fields the rendered page needs. Keep `includeMetadata:false` unless the rendered value needs file metadata such as name, path, MIME type, or creation date, and avoid `output.mode:"all"` as a convenience default. Query diagnostics are returned separately and do not require metadata output. Filters and sorting may still require their referenced fields in the database.
-- Every reachable Assets data source contributes to the shared published database. Keep one final resource per rendered query. Update an existing scoped resource rather than creating a placeholder, preview copy, or repair replacement, and remove obsolete duplicates.
-- Keep bounded overview filters, limits, and offsets literal and add a deterministic ID tie-breaker to the sort. With `content.mode:"none"`, compilation can materialize the small overview result instead of retaining its output fields across every candidate document. Use runtime expressions only for genuinely dynamic values such as the detail slug.
-- Combine filters with `where.all` (AND) and `where.any` (OR), including nested groups. Filter values, limit, and offset on a saved resource may be Webstudio expressions evaluated at render time. Preview queries use concrete JSON values.
-- Query Markdown files directly and use `content.mode:"markdown-body-ref"` when rendering their bodies. The published database retains metadata and a document reference, then fetches only the selected Markdown files from Asset storage at runtime; it does not embed their bodies. Filter and paginate before content is loaded.
-- `full` and bounded `range` continue to request embedded file bytes. Use them only when the caller requires the complete source or a byte range.
-- In Markdown, reference sibling Assets with conventional relative URLs such as `../images/hero.png`. Deferred `markdown-body-ref` content resolves matching files against the Markdown file's folder and emits the correct Builder or published Asset URL. Keep external URLs absolute.
-- Markdown Embed renders sanitized authored HTML for figures, captions, audio, video, and iframes. Scripts, inline event handlers, `srcdoc`, and unsafe URL protocols are removed. Executable component composition remains separate future MDX work.
-- Preview each query with concrete values before saving it. Inspect `__diagnostics__.query` for the temporary query-only footprint and `__diagnostics__.database` for the merged database built from all reachable Assets queries. Only `database.usedBytes` counts toward `database.maxBytes`; query sizes must not be summed and are not separate allowances. Compare `usedBytes`, `unboundedBytes`, and `truncated` within both scopes. A completed Markdown blog should include every source document without truncation, contain no embedded Markdown bodies, and retain only its intended materialized overview query. When merged usage approaches the limit, remove duplicate reachable resources first, then unused output fields, then narrow candidate files.
-- Read Assets from the ID-keyed map at `<dataSourceName>.data`, with collection information such as `totalCount` and `hasMore` at `<dataSourceName>.meta`. Bind a listing Collection to `posts.data` and a one-result detail Collection to `post.data`. On each value, selected file fields such as `id`, `name`, and `extension` are top-level, Markdown frontmatter and JSON fields are under `properties`, and a resolved Markdown body is at `content.text`.
-- Assets has one response shape and always executes a structured query. Omit `query` to use the default query, which selects URL and optional image dimensions. Provide query configuration to control filtering, sorting, pagination, selected fields, or file content. Set `values.query:null` to restore the default query.
-- `create-assets-resource` and `update-assets-resource` are the semantic authoring path. Do not construct the internal query URL, headers, or body expression manually.
-- The shared metadata index is maintained automatically and is emitted only when a configured Assets resource is reachable.
 
 ## Delete resource
 
@@ -835,13 +790,11 @@ Notes:
 Commands:
 
 - MCP tool: update-asset {"assetId":"<assetId>","values":{"description":"Team collaborating around a whiteboard"}}
-- MCP tool: update-asset {"assetId":"<fontAssetId>","values":{"meta":{"family":"Rajdhani","style":"normal","weight":600}}}
 
 Notes:
 
 - Use an empty description only when the image is intentionally decorative.
 - Updating an image asset description updates the default alt text wherever that asset is used with an asset-backed alt prop.
-- Font metadata updates merge with the detected metadata and are validated before committing; use this to correct a family, style, or weight after upload.
 
 ## Generate missing image descriptions with an agent
 
@@ -992,7 +945,6 @@ Commands:
 
 - MCP tool: get-marketplace-product {}
 - MCP tool: update-marketplace-product {"category":"pageTemplates","name":"Acme Template","thumbnailAssetId":"asset-id","author":"Acme Studio","email":"hello@example.com","website":"https://example.com","issues":"","description":"Reusable template project for Acme landing pages."}
-- MCP tool: submit-marketplace-product {"acknowledgePublicSubmission":true}
 
 Patch namespaces:
 
@@ -1125,10 +1077,10 @@ Notes:
 Commands:
 
 - MCP tool: create-variable {"scopeInstanceId":"<instanceId>","name":"title","value":{"type":"string","value":"Hello"}}
-- MCP tool: create-variable {"scopeInstanceId":"<instanceId>","name":"tags","value":{"type":"json","value":["news","product"]}}
+- MCP tool: create-variable {"scopeInstanceId":"<instanceId>","name":"tags","value":{"type":"string[]","value":["news","product"]}}
 - MCP tool: create-variable {"scopeInstanceId":"<instanceId>","name":"filters","value":{"type":"json","value":{"tag":"news"}}}
 - MCP tool: create-resource {"resource":{"name":"Posts","method":"get","url":"https://api.example.com/posts","searchParams":[{"name":"tag","value":"filters.tag"},{"name":"source","value":{"type":"literal","value":"website"}}],"headers":[]},"scopeInstanceId":"<instanceId>","dataSourceName":"posts"}
-- MCP tool: create-resource {"resource":{"name":"Post GraphQL","control":"graphql","method":"post","url":"https://api.example.com/graphql","headers":[{"name":"Content-Type","value":{"type":"literal","value":"application/json"}}],"body":"{ query: 'query Post($slug: String!) { post(slug: $slug) { title } }', variables: { slug: system.params.slug } }"},"scopeInstanceId":"<instanceId>","dataSourceName":"post"}
+- MCP tool: create-resource {"resource":{"name":"Post GraphQL","control":"graphql","method":"post","url":"https://api.example.com/graphql","headers":[{"name":"Content-Type","value":{"type":"literal","value":"application/json"}}],"body":"{ query: \"query Post($slug: String!) { post(slug: $slug) { title } }\", variables: { slug: system.params.slug } }"},"scopeInstanceId":"<instanceId>","dataSourceName":"post"}
 - MCP tool: create-resource {"resource":{"name":"Current Date","control":"system","method":"get","url":"/$resources/current-date","headers":[]},"scopeInstanceId":"<instanceId>","dataSourceName":"currentDate"}
 - MCP tool: update-resource {"resourceId":"<resourceId>","values":{"url":"https://api.example.com/posts"}}
 - MCP tool: bind-props {"bindings":"bindings.json contents"}
@@ -1145,7 +1097,7 @@ Notes:
 
 Commands:
 
-- MCP tool: insert-collection {"parentInstanceId":"<instanceId>","data":{"type":"expression","value":"posts.data.items"},"itemFragment":"<ws.element ws:tag='article'><ws.element ws:tag='h2'>{expression`collectionItem.title`}</ws.element></ws.element>"}
+- MCP tool: insert-collection {"parentInstanceId":"<instanceId>","data":{"type":"expression","value":"posts.data.items"},"itemFragment":"<ws.element ws:tag=\"article\"><ws.element ws:tag=\"h2\">{expression`collectionItem.title`}</ws.element></ws.element>"}
 - MCP tool: inspect-instance {"instanceId":"<collectionId>","include":["props","bindings","children"]}
 
 Notes:
@@ -1210,7 +1162,7 @@ Commands:
 - MCP tool: create-design-token {"tokens":"tokens.json contents"}
 - MCP tool: define-css-variable {"vars":"vars.json contents"}
 - MCP tool: list-breakpoints {}
-- MCP tool: insert-fragment {"parentInstanceId":"<instanceId>","fragment":"<ws.element ws:tag='section'><ws.element ws:tag='p'>Section copy</ws.element></ws.element>"}
+- MCP tool: insert-fragment {"parentInstanceId":"<instanceId>","fragment":"<ws.element ws:tag=\"section\"><ws.element ws:tag=\"p\">Section copy</ws.element></ws.element>"}
 - MCP tool: update-styles {"updates":[{"instanceId":"<instanceId>","breakpointId":"<breakpointId-from-list-breakpoints>","property":"padding-left","value":{"type":"unit","unit":"px","value":24}}]}
 - MCP tool: preview.start {"host":"127.0.0.1","port":5173}
 - MCP tool: screenshot {"path":"/landing","output":"landing-desktop.png","viewport":{"width":1440,"height":900},"waitUntil":"load","waitForTimeout":250}

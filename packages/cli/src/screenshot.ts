@@ -505,7 +505,6 @@ let screenshotBatchSequence = 0;
 
 type CaptureScreenshotOptions = {
   url: string;
-  httpCredentials?: { username: string; password: string };
   output?: string;
   width: number;
   height: number;
@@ -539,7 +538,6 @@ const getBrowserScreenshotOptions = (
   includeResourceMetrics: options.includeResourceMetrics,
   includeContrastMetrics: options.includeContrastMetrics,
   url: options.url,
-  httpCredentials: options.httpCredentials,
   uid: dependencies.getuid(),
   waitUntil: options.waitUntil ?? defaultScreenshotWaitUntil,
   waitForSelector: options.waitForSelector,
@@ -610,26 +608,6 @@ export const createScreenshotCaptureSession = (
   let browserPromise: Promise<BrowserCandidate> | undefined;
   let browserSession: BrowserScreenshotSession | undefined;
   let browserSessionPromise: Promise<BrowserScreenshotSession> | undefined;
-  const getBrowserSession = async (
-    options: BrowserScreenshotOptions
-  ): Promise<BrowserScreenshotSession> => {
-    if (browserSession !== undefined) {
-      return browserSession;
-    }
-    const pendingSession =
-      browserSessionPromise ??
-      createBrowserScreenshotSession(options, dependencies);
-    browserSessionPromise = pendingSession;
-    try {
-      browserSession = await pendingSession;
-      return browserSession;
-    } catch (error) {
-      if (browserSessionPromise === pendingSession) {
-        browserSessionPromise = undefined;
-      }
-      throw error;
-    }
-  };
   return {
     async capture(options: CaptureScreenshotOptions) {
       browserPromise ??= resolveScreenshotBrowser(options, dependencies);
@@ -644,19 +622,21 @@ export const createScreenshotCaptureSession = (
           "A reusable screenshot session cannot switch browser executables."
         );
       }
-      const activeBrowserSession = await getBrowserSession(
+      browserSessionPromise ??= createBrowserScreenshotSession(
         getBrowserScreenshotOptions(
           options,
           resolvedBrowser.path,
           options.output ?? "",
           dependencies
-        )
+        ),
+        dependencies
       );
+      browserSession ??= await browserSessionPromise;
       return await captureResolvedScreenshot(
         options,
         resolvedBrowser,
         dependencies,
-        activeBrowserSession
+        browserSession
       );
     },
     async capturePage(optionsList: readonly CaptureScreenshotOptions[]) {
@@ -703,10 +683,12 @@ export const createScreenshotCaptureSession = (
           };
         })
       );
-      const activeBrowserSession = await getBrowserSession(
-        captures[0].browserOptions
+      browserSessionPromise ??= createBrowserScreenshotSession(
+        captures[0].browserOptions,
+        dependencies
       );
-      const layouts = await activeBrowserSession.capturePage(
+      browserSession ??= await browserSessionPromise;
+      const layouts = await browserSession.capturePage(
         captures.map((capture) => capture.browserOptions)
       );
       return captures.map(({ options, output }, index) => {

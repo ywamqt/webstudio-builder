@@ -295,69 +295,6 @@ test("requires json output flag", async () => {
   );
 });
 
-test("prints project permissions without json output", async () => {
-  mockConfig();
-  apiCalls.getProjectPermissions.mockResolvedValue({
-    relation: "builders",
-    permits: ["view", "edit", "build", "api"],
-    canView: true,
-    canEdit: true,
-    canBuild: true,
-    canUseApi: true,
-    canPublish: false,
-    canPublishProjectDomain: true,
-    canPublishCustomDomains: false,
-    canAdmin: false,
-  });
-
-  await apiCommand({ command: "permissions" }, dependencies);
-
-  expect(console.info).toHaveBeenCalledWith("Project role: builders");
-  expect(console.info).toHaveBeenCalledWith("Permits: view, edit, build, api");
-  expect(console.info).toHaveBeenCalledWith("canView: yes");
-  expect(console.info).toHaveBeenCalledWith("canEdit: yes");
-  expect(console.info).toHaveBeenCalledWith("canBuild: yes");
-  expect(console.info).toHaveBeenCalledWith("canUseApi: yes");
-  expect(console.info).toHaveBeenCalledWith("canPublish: no");
-  expect(console.info).toHaveBeenCalledWith("canPublishProjectDomain: yes");
-  expect(console.info).toHaveBeenCalledWith("canPublishCustomDomains: no");
-  expect(console.info).toHaveBeenCalledWith("canAdmin: no");
-});
-
-test("selects a previously linked project explicitly", async () => {
-  readFile.mockResolvedValueOnce(
-    JSON.stringify({
-      "project-2": { origin: "https://example.com", token: "token-1" },
-    })
-  );
-
-  await apiCommand(
-    { command: "permissions", project: "project-2", json: true },
-    dependencies
-  );
-
-  expect(apiCalls.getProjectPermissions).toHaveBeenCalledWith(
-    expect.objectContaining({ projectId: "project-2" })
-  );
-});
-
-test("isolates the session for a previously linked project", async () => {
-  readFile.mockResolvedValueOnce(
-    JSON.stringify({
-      "project-2": { origin: "https://example.com", token: "token-1" },
-    })
-  );
-
-  await apiCommand(
-    { command: "list-pages", project: "project-2", json: true },
-    dependencies
-  );
-
-  expect(createCliProjectSession).toHaveBeenCalledWith(
-    expect.objectContaining({ sessionProjectId: "project-2" })
-  );
-});
-
 test("explains mcp-only editing commands should use shortcut or single-op-call", async () => {
   mockConfig();
 
@@ -984,17 +921,6 @@ test("updates marketplace product from input file", async () => {
   });
 });
 
-test("submits marketplace product for review", async () => {
-  await expectCommandCall({
-    options: {
-      command: "submit-marketplace-product",
-      confirm: true,
-    },
-    call: apiCalls.submitMarketplaceProduct,
-    connection: { acknowledgePublicSubmission: true },
-  });
-});
-
 test("lists redirects with shared output detail options", async () => {
   await expectCommandCall({
     options: {
@@ -1592,14 +1518,14 @@ test("creates variable with parsed value", async () => {
       command: "create-variable",
       scopeInstance: "body-id",
       name: "items",
-      valueType: "json",
+      valueType: "string[]",
       value: '["a","b"]',
     },
     call: apiCalls.createVariable,
     connection: {
       scopeInstanceId: "body-id",
       name: "items",
-      value: { type: "json", value: ["a", "b"] },
+      value: { type: "string[]", value: ["a", "b"] },
     },
   });
 });
@@ -1978,7 +1904,7 @@ test("deletes assets with confirmation", async () => {
     },
     call: apiCalls.deleteAssets,
     connection: {
-      assetIds: ["asset-id", "asset-prefix"],
+      assetIdsOrPrefixes: ["asset-id", "asset-prefix"],
       force: true,
     },
   });

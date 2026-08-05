@@ -17,7 +17,6 @@ export type BrowserScreenshotOptions = {
   includeResourceMetrics?: boolean;
   includeContrastMetrics?: boolean;
   url: string;
-  httpCredentials?: { username: string; password: string };
   uid?: number;
   waitUntil: ScreenshotWaitUntil;
   waitForSelector?: string;
@@ -26,30 +25,6 @@ export type BrowserScreenshotOptions = {
   format?: "png" | "jpeg" | "webp";
   quality?: number;
   scale?: number;
-};
-
-const getNavigationUrl = (options: BrowserScreenshotOptions) => {
-  if (options.httpCredentials === undefined) {
-    return options.url;
-  }
-  const url = new URL(options.url);
-  url.username = options.httpCredentials.username;
-  url.password = options.httpCredentials.password;
-  return url.toString();
-};
-
-const removeUrlCredentials = (value: string) => {
-  try {
-    const url = new URL(value);
-    if (url.username === "" && url.password === "") {
-      return value;
-    }
-    url.username = "";
-    url.password = "";
-    return url.toString();
-  } catch {
-    return value;
-  }
 };
 
 export type BrowserScreenshotTimings = {
@@ -390,8 +365,6 @@ const waitForSelector = async (
 type BrowserReadiness = {
   documentReadyState: string;
   generatedSiteRootPresent: boolean;
-  projectId?: string;
-  projectVersion?: number;
   layoutStable: boolean;
 };
 
@@ -406,14 +379,6 @@ const waitForFontsAndFrames = async (
           documentReadyState: document.readyState,
           generatedSiteRootPresent:
             document.documentElement.hasAttribute("data-ws-project"),
-          projectId:
-            document.documentElement.getAttribute("data-ws-project") ?? undefined,
-          projectVersion: (() => {
-            const attribute = document.documentElement.getAttribute("data-ws-version");
-            if (attribute === null) return undefined;
-            const value = Number(attribute);
-            return Number.isFinite(value) ? value : undefined;
-          })(),
           width: document.documentElement.scrollWidth,
           height: document.documentElement.scrollHeight,
         }))`,
@@ -430,8 +395,6 @@ const waitForFontsAndFrames = async (
   ): value is {
     documentReadyState: string;
     generatedSiteRootPresent: boolean;
-    projectId?: string;
-    projectVersion?: number;
     width: number;
     height: number;
   } =>
@@ -441,12 +404,6 @@ const waitForFontsAndFrames = async (
     typeof value.documentReadyState === "string" &&
     "generatedSiteRootPresent" in value &&
     typeof value.generatedSiteRootPresent === "boolean" &&
-    ("projectId" in value === false ||
-      value.projectId === undefined ||
-      typeof value.projectId === "string") &&
-    ("projectVersion" in value === false ||
-      value.projectVersion === undefined ||
-      typeof value.projectVersion === "number") &&
     "width" in value &&
     typeof value.width === "number" &&
     "height" in value &&
@@ -471,12 +428,6 @@ const waitForFontsAndFrames = async (
       return {
         documentReadyState: value.documentReadyState,
         generatedSiteRootPresent: value.generatedSiteRootPresent,
-        ...(value.projectId === undefined
-          ? {}
-          : { projectId: value.projectId }),
-        ...(value.projectVersion === undefined
-          ? {}
-          : { projectVersion: value.projectVersion }),
         layoutStable: true,
       };
     }
@@ -484,12 +435,6 @@ const waitForFontsAndFrames = async (
       return {
         documentReadyState: value.documentReadyState,
         generatedSiteRootPresent: value.generatedSiteRootPresent,
-        ...(value.projectId === undefined
-          ? {}
-          : { projectId: value.projectId }),
-        ...(value.projectVersion === undefined
-          ? {}
-          : { projectVersion: value.projectVersion }),
         layoutStable: false,
       };
     }
@@ -588,8 +533,6 @@ export type BrowserScreenshotNavigation = {
   redirects: string[];
   documentReadyState: string;
   generatedSiteRootPresent: boolean;
-  projectId?: string;
-  projectVersion?: number;
   layoutStable: boolean;
 };
 
@@ -1334,7 +1277,7 @@ const capturePageWithBrowserRuntime = async (
             return;
           }
           const redirects = redirectsByFrame.get(params.frameId) ?? [];
-          redirects.push(removeUrlCredentials(params.redirectResponse.url));
+          redirects.push(params.redirectResponse.url);
           redirectsByFrame.set(params.frameId, redirects);
         });
         cdp.on("Network.responseReceived", (params) => {
@@ -1359,7 +1302,7 @@ const capturePageWithBrowserRuntime = async (
             return;
           }
           documentResponsesByFrame.set(params.frameId, {
-            url: removeUrlCredentials(response.url),
+            url: response.url,
             status: response.status,
             ...(typeof response.statusText === "string"
               ? { statusText: response.statusText }
@@ -1402,7 +1345,7 @@ const capturePageWithBrowserRuntime = async (
               async () =>
                 await send<NavigationResult>(
                   "Page.navigate",
-                  { url: getNavigationUrl(options) },
+                  { url: options.url },
                   options.timeout
                 )
             );
@@ -1517,14 +1460,13 @@ const capturePageWithBrowserRuntime = async (
             contrastInspectionPromise,
             screenshotPromise,
           ]);
-          const finalUrl = removeUrlCredentials(
+          const finalUrl =
             typeof locationResult.result?.value === "string"
               ? locationResult.result.value
               : ((navigationFrameId === undefined
                   ? undefined
                   : documentResponsesByFrame.get(navigationFrameId)?.url) ??
-                  options.url)
-          );
+                options.url);
           const documentResponse =
             navigationFrameId === undefined
               ? undefined

@@ -11,8 +11,6 @@
     "**/*.yaml",
     "**/*.toml",
     "**/*.jsonc",
-    "docs/**",
-    "packages/cli/templates/**",
-    "fixtures/**/__generated__/**"
+    "packages/cli/templates/**"
   ]
 }

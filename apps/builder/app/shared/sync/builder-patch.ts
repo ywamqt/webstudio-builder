@@ -31,29 +31,11 @@ const getNamespaceData = (
 const applyBuilderPatchPayloadMutable = (
   data: BuilderPatchData,
   payload: readonly BuilderPatchChange[]
-) => {
-  const applicableChanges: BuilderPatchChange[] = [];
-  for (const change of payload) {
-    const [patch] = change.patches;
-    if (
-      change.namespace === "marketplaceProduct" &&
-      data.marketplaceProduct === undefined &&
-      change.patches.length === 1 &&
-      patch?.op === "replace" &&
-      patch.path.length === 0
-    ) {
-      data.marketplaceProduct = structuredClone(
-        patch.value
-      ) as MarketplaceProduct;
-      continue;
-    }
-    applicableChanges.push(change);
-  }
+) =>
   builderStatePatch.applyBuilderPatchPayloadMutable(
     (namespace) => getNamespaceData(data, namespace),
-    applicableChanges
+    payload
   );
-};
 
 const clonePatch = (patch: Patch | BuilderPatch): Patch =>
   patch.op === "remove"
@@ -105,14 +87,6 @@ const createSyncChangesFromBuilderPatches = ({
       continue;
     }
     const change = getChange(namespace as BuilderPatchChange["namespace"]);
-    if (
-      namespace === "marketplaceProduct" &&
-      patch.op === "remove" &&
-      path.length === 0
-    ) {
-      change.revisePatches.push({ op: "replace", path, value: undefined });
-      continue;
-    }
     change.revisePatches.push(clonePatch({ ...patch, path }));
   }
   return Array.from(changes, ([namespace, change]) => ({

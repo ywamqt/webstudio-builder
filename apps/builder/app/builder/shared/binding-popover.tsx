@@ -32,8 +32,10 @@ import {
   Tooltip,
   theme,
 } from "@webstudio-is/design-system";
-import { getExpressionIdentifiers } from "@webstudio-is/expression";
-import { decodeDataSourceVariable } from "@webstudio-is/sdk";
+import {
+  decodeDataSourceVariable,
+  getExpressionIdentifiers,
+} from "@webstudio-is/sdk";
 import { getExpressionErrorMessages } from "@webstudio-is/project-build/runtime";
 import { $dataSourceVariables, $isDesignMode } from "~/shared/nano-states";
 import {
@@ -356,7 +358,6 @@ export const BindingPopover = ({
   return (
     <FloatingPanel
       placement="left-start"
-      anchor="trigger"
       open={isOpen}
       onOpenChange={(newOpen) => {
         // handle special case for popover close

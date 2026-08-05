@@ -1,10 +1,21 @@
 import { atom } from "nanostores";
 import { useStore } from "@nanostores/react";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+  DialogActions,
+  Button,
+  Flex,
+  Text,
+  theme,
+} from "@webstudio-is/design-system";
 import type {
   ConflictResolution,
   TokenConflict,
 } from "@webstudio-is/project-build/runtime";
-import { ConflictResolutionDialog } from "./conflict-resolution-dialog";
+import { DialogRadioOptions } from "./dialog-radio-options";
 
 export type TokenConflictDialogResult = ConflictResolution | "cancel";
 export type TokenConflictDialogConflict = Pick<TokenConflict, "tokenName">;
@@ -67,6 +78,11 @@ export const TokenConflictDialog = () => {
     }
   };
 
+  const handleResolve = () => {
+    resolve(resolution);
+    handleClose();
+  };
+
   const handleCancel = () => {
     resolve("cancel");
     handleClose();
@@ -80,27 +96,63 @@ export const TokenConflictDialog = () => {
   const firstConflict = conflicts[0];
 
   return (
-    <ConflictResolutionDialog
-      title="Token conflict detected"
-      description={
-        conflictCount === 1
-          ? `The token "${firstConflict.tokenName}" already exists with different styles.`
-          : `${conflictCount} tokens already exist with the same names but different styles.`
-      }
-      detailsLabel="Show conflicting tokens"
-      details={conflicts.map((conflict) => conflict.tokenName).join(", ")}
-      resolution={resolution}
-      options={conflictResolutionOptions}
-      onResolutionChange={(nextResolution) => {
-        if ($dialogState.get()?.resolve === resolve) {
-          $dialogState.set({ conflicts, resolution: nextResolution, resolve });
+    <Dialog
+      open={true}
+      onOpenChange={(open) => {
+        if (!open) {
+          handleCancel();
         }
       }}
-      onResolve={() => {
-        resolve(resolution);
-        handleClose();
-      }}
-      onCancel={handleCancel}
-    />
+    >
+      <DialogContent css={{ minWidth: "40ch" }}>
+        <DialogTitle>Token conflict detected</DialogTitle>
+        <Flex
+          direction="column"
+          gap="2"
+          css={{
+            padding: theme.panel.padding,
+          }}
+        >
+          <DialogDescription asChild>
+            <Text as="p">
+              {conflictCount === 1
+                ? `The token "${firstConflict.tokenName}" already exists with different styles.`
+                : `${conflictCount} tokens already exist with the same names but different styles.`}
+            </Text>
+          </DialogDescription>
+
+          <DialogRadioOptions
+            value={resolution}
+            options={conflictResolutionOptions}
+            onValueChange={(resolution) => {
+              if ($dialogState.get()?.resolve === resolve) {
+                $dialogState.set({ conflicts, resolution, resolve });
+              }
+            }}
+          />
+
+          <Flex as="details" direction="column" gap="1">
+            <Text as="summary">Show conflicting tokens</Text>
+            <Text
+              color="subtle"
+              css={{
+                maxHeight: 150,
+                overflow: "auto",
+              }}
+            >
+              {conflicts.map((conflict) => conflict.tokenName).join(", ")}
+            </Text>
+          </Flex>
+        </Flex>
+        <DialogActions>
+          <Button autoFocus color="positive" onClick={handleResolve}>
+            Continue
+          </Button>
+          <Button color="ghost" onClick={handleCancel}>
+            Cancel
+          </Button>
+        </DialogActions>
+      </DialogContent>
+    </Dialog>
   );
 };

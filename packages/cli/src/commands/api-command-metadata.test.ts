@@ -127,22 +127,6 @@ test("returns command-specific options when available", () => {
   );
 });
 
-test("describes JSON as optional for human-readable permissions", () => {
-  const yargs = { option: vi.fn().mockReturnThis() };
-  const metadata = apiCommandMetadata.find(
-    (item) => item.command === "permissions"
-  );
-
-  expect(metadata).toBeDefined();
-  getApiCommandOptions(metadata!)(yargs as never);
-
-  expect(yargs.option).toHaveBeenCalledWith("json", {
-    type: "boolean",
-    describe: "Print a machine-readable JSON response to stdout",
-    default: false,
-  });
-});
-
 test("parses redirect status as a string option", () => {
   const yargs = { option: vi.fn().mockReturnThis() };
   const metadata = apiCommandMetadata.find(
@@ -155,23 +139,6 @@ test("parses redirect status as a string option", () => {
   expect(yargs.option).toHaveBeenCalledWith(
     "status",
     expect.objectContaining({ type: "string", choices: ["301", "302"] })
-  );
-});
-
-test("uses JSON as the only variable array type", () => {
-  const yargs = { option: vi.fn().mockReturnThis() };
-  const metadata = apiCommandMetadata.find(
-    (item) => item.command === "create-variable"
-  );
-
-  expect(metadata).toBeDefined();
-  getApiCommandOptions(metadata!)(yargs as never);
-
-  expect(yargs.option).toHaveBeenCalledWith(
-    "value-type",
-    expect.objectContaining({
-      choices: ["string", "number", "boolean", "json"],
-    })
   );
 });
 

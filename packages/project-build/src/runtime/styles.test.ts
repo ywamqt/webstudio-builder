@@ -59,7 +59,6 @@ import {
   createSelectedStyleDeclarationUpdatePayload,
   styleDeleteInput,
   styleReplaceInput,
-  styleUpdateDeclarationsInput,
   styleUpdateInput,
   defineCssVariables,
   deleteDesignTokenStyles,
@@ -80,14 +79,12 @@ import {
   updateVarReferencesInProps,
 } from "./styles";
 import { createLocalStyleSourceClonePlan } from "./style-utils";
-import { getInputSchemaMetadata } from "../contracts/input-schema";
-import { getZodValidationIssues } from "./errors";
 import {
   addStyleSourceToInstanceMutable,
   createLocalStyleSourcePatchPlan,
   createLocalStyleSourcePlan,
   createStyleDecl as createStyleDeclValue,
-  createStyleDeclsFromInput,
+  createStyleDeclFromInput,
   deleteLocalStyleSourcesMutable,
   deleteStyleDeclMutable,
   deleteStyleSourceMutable,
@@ -1282,34 +1279,6 @@ describe("runtime style operations", () => {
     ]);
   });
 
-  test("parses CSS strings when creating design tokens", () => {
-    const mutation = createDesignTokens(
-      {
-        breakpoints: runtimeBreakpoints,
-        styles: new Map(),
-        styleSources: new Map(),
-        styleSourceSelections: new Map(),
-      },
-      { tokens: [{ name: "Primary", styles: { fontSize: "24px" } }] },
-      { createId }
-    );
-
-    expect(mutation.payload).toContainEqual({
-      namespace: "styles",
-      patches: [
-        {
-          op: "add",
-          path: ["new-id:desktop:fontSize:"],
-          value: createStyleDecl("new-id", "desktop", "fontSize", {
-            type: "unit",
-            value: 24,
-            unit: "px",
-          }),
-        },
-      ],
-    });
-  });
-
   test("creates and attaches design tokens atomically", () => {
     const mutation = createAttachedDesignTokens(
       {
@@ -1684,10 +1653,28 @@ describe("runtime style operations", () => {
     ]);
   });
 
-  test("defines css variables on the project root at the base breakpoint", () => {
+  test("define css variables uses the project base breakpoint", () => {
     const mutation = defineCssVariables(
       {
         breakpoints: runtimeBreakpoints,
+        pages: {
+          homePageId: "home",
+          rootFolderId: "root",
+          pages: new Map([
+            [
+              "home",
+              {
+                id: "home",
+                name: "Home",
+                title: "",
+                rootInstanceId: "root",
+                meta: {},
+                path: "",
+              },
+            ],
+          ]),
+          folders: new Map(),
+        },
         styles: new Map(),
         styleSources: new Map(),
         styleSourceSelections: new Map(),
@@ -1696,23 +1683,7 @@ describe("runtime style operations", () => {
       { createId }
     );
 
-    expect(mutation.result).toEqual({
-      names: ["--color"],
-      scope: ROOT_INSTANCE_ID,
-    });
-    expect(mutation.payload).toContainEqual({
-      namespace: "styleSourceSelections",
-      patches: [
-        {
-          op: "add",
-          path: [ROOT_INSTANCE_ID],
-          value: {
-            instanceId: ROOT_INSTANCE_ID,
-            values: ["new-id"],
-          },
-        },
-      ],
-    });
+    expect(mutation.result.names).toEqual(["--color"]);
     expect(mutation.payload).toContainEqual({
       namespace: "styles",
       patches: [
@@ -2027,64 +1998,6 @@ describe("style declaration helpers", () => {
         },
       ],
     });
-
-    const invalidStyleUpdate = styleUpdateDeclarationsInput.safeParse({
-      updates: [
-        {
-          instanceId: "box",
-          property: "color",
-          value: "red",
-        },
-      ],
-    });
-    expect(invalidStyleUpdate.success).toBe(false);
-    if (invalidStyleUpdate.success) {
-      throw new Error("Expected the primitive style value to be rejected");
-    }
-    expect(
-      getZodValidationIssues(
-        invalidStyleUpdate.error,
-        getInputSchemaMetadata(styleUpdateDeclarationsInput).inputJsonSchema
-      )
-    ).toEqual([
-      expect.objectContaining({
-        code: "invalid_type",
-        path: ["updates", "0", "value"],
-        message: "Invalid input: expected object, received string",
-        example: { type: "keyword", value: "red" },
-      }),
-    ]);
-    expect(
-      styleUpdateInput.safeParse({
-        instanceId: "box",
-        property: "color",
-        value: "red",
-      }).success
-    ).toBe(false);
-    expect(
-      designTokenCreateInput.safeParse({
-        name: "Primary",
-        styles: { color: "red" },
-      }).success
-    ).toBe(true);
-    expect(
-      designTokenCreateInput.safeParse({
-        name: "Primary",
-        styles: { color: { type: "unsupported", value: "red" } },
-      }).success
-    ).toBe(false);
-
-    expect(
-      getInputSchemaMetadata(styleUpdateInput).inputJsonSchema.properties?.value
-    ).toMatchObject({
-      description: "Typed CSS StyleValue object.",
-      examples: [{ type: "keyword", value: "red" }],
-      type: "object",
-      properties: {
-        type: { type: "string" },
-      },
-      required: ["type"],
-    });
   });
 
   test("reject empty design token names", () => {
@@ -2133,55 +2046,21 @@ describe("style declaration helpers", () => {
     });
   });
 
-  test("creates a longhand style declaration with base breakpoint default", () => {
+  test("creates style declarations from user input with base breakpoint default", () => {
     expect(
-      createStyleDeclsFromInput({
+      createStyleDeclFromInput({
         styleSourceId: "token",
         property: "color",
         value: { type: "keyword", value: "red" },
         state: ":hover",
       })
-    ).toEqual([
-      {
-        styleSourceId: "token",
-        breakpointId: "base",
-        property: "color",
-        value: { type: "keyword", value: "red" },
-        state: ":hover",
-      },
-    ]);
-  });
-
-  test("expands shorthand style input into editable longhands", () => {
-    expect(
-      createStyleDeclsFromInput({
-        styleSourceId: "token",
-        property: "inset",
-        value: { type: "unparsed", value: "0" },
-        breakpoint: "desktop",
-        state: ":hover",
-        listed: true,
-      })
-    ).toEqual(
-      ["top", "right", "bottom", "left"].map((property) => ({
-        styleSourceId: "token",
-        breakpointId: "desktop",
-        listed: true,
-        property,
-        value: { type: "unit", value: 0, unit: "number" },
-        state: ":hover",
-      }))
-    );
-  });
-
-  test("rejects invalid shorthand values", () => {
-    expect(() =>
-      createStyleDeclsFromInput({
-        styleSourceId: "token",
-        property: "inset",
-        value: { type: "unparsed", value: "1px /" },
-      })
-    ).toThrow('Invalid value for shorthand CSS property "inset"');
+    ).toEqual({
+      styleSourceId: "token",
+      breakpointId: "base",
+      property: "color",
+      value: { type: "keyword", value: "red" },
+      state: ":hover",
+    });
   });
 
   test("creates style declaration keys from user input with base breakpoint default", () => {
@@ -2712,35 +2591,6 @@ describe("createStyleDeclarationUpdatePayload", () => {
     expect(missingLocalStyleSourceInstanceIds).toEqual([]);
   });
 
-  test("expands shorthand updates into local longhand patches", () => {
-    const { payload, styleKeys } = createStyleDeclarationUpdatePayload({
-      styleSources: sources([local("local")]),
-      styleSourceSelections: [{ instanceId: "box", values: ["local"] }],
-      styles: [],
-      createId,
-      updates: [
-        {
-          instanceId: "box",
-          property: "inset",
-          value: { type: "unparsed", value: "0" },
-        },
-      ],
-    });
-
-    expect(payload[0]?.patches.map((patch) => patch.path[0])).toEqual([
-      "local:base:top:",
-      "local:base:right:",
-      "local:base:bottom:",
-      "local:base:left:",
-    ]);
-    expect(styleKeys).toEqual([
-      "local:base:top:",
-      "local:base:right:",
-      "local:base:bottom:",
-      "local:base:left:",
-    ]);
-  });
-
   test("reports missing local style source when creation is disabled", () => {
     const result = createStyleDeclarationUpdatePayload({
       styleSources: new Map(),
@@ -3066,23 +2916,6 @@ describe("design token patch helpers", () => {
       },
     ]);
     expect(styleKeys).toEqual(["token:base:color:", "token:base:color:"]);
-  });
-
-  test("expands shorthand updates for design tokens", () => {
-    const { payload } = createDesignTokenStyleUpdatePayload({
-      designTokenId: "token",
-      styles: [],
-      updates: [
-        { property: "gridArea", value: { type: "unparsed", value: "1 / 1" } },
-      ],
-    });
-
-    expect(payload[0]?.patches.map((patch) => patch.path[0])).toEqual([
-      "token:base:gridRowStart:",
-      "token:base:gridColumnStart:",
-      "token:base:gridRowEnd:",
-      "token:base:gridColumnEnd:",
-    ]);
   });
 
   test("returns empty payload when token style updates are empty", () => {

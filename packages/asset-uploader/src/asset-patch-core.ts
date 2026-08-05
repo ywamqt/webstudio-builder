@@ -8,10 +8,6 @@ import {
   type Patch,
 } from "./patch-utils";
 import { swapAssetFileWithClient } from "./revision";
-import type { AssetMetadataUpdate } from "./asset-mutation-types";
-import { AssetRepositoryNotFoundError } from "./asset-repository-errors";
-
-const serializeAssetMeta = (meta: Asset["meta"]) => JSON.stringify(meta);
 
 export const createAssetRows = (assets: Iterable<Asset>, projectId: string) =>
   Array.from(assets, (asset) => ({
@@ -25,10 +21,9 @@ export const createAssetRows = (assets: Iterable<Asset>, projectId: string) =>
 
 export const loadAssetsByProjectWithClient = async (
   projectId: string,
-  client: Client,
-  assetIds?: string[]
+  client: Client
 ): Promise<Asset[]> => {
-  let query = client
+  const assets = await client
     .from("Asset")
     // use inner to filter out assets without file
     // when file is not uploaded
@@ -43,14 +38,7 @@ export const loadAssetsByProjectWithClient = async (
       `
     )
     .eq("projectId", projectId)
-    .eq("file.status", "UPLOADED");
-  if (assetIds !== undefined) {
-    if (assetIds.length === 0) {
-      return [];
-    }
-    query = query.in("id", assetIds);
-  }
-  const assets = await query
+    .eq("file.status", "UPLOADED")
     // always sort by primary key to get stable list
     // required to not break fixtures
     .order("id");
@@ -104,7 +92,7 @@ export const deleteAssetsWithClient = async (
   assertPostgrestSuccess(assets);
 
   if ((assets.data ?? []).length === 0) {
-    throw new AssetRepositoryNotFoundError("Assets not found");
+    throw new Error("Assets not found");
   }
 
   const previewUpdate = await client
@@ -140,79 +128,11 @@ export const deleteAssetsWithClient = async (
   }
 };
 
-export const updateAssetMetadataWithClient = async (
-  {
-    projectId,
-    assetId,
-    values,
-  }: {
-    projectId: string;
-    assetId: Asset["id"];
-    values: AssetMetadataUpdate;
-  },
-  client: Client
-): Promise<Asset> => {
-  await persistAssetMetadataWithClient({ projectId, assetId, values }, client);
-
-  const [asset] = await loadAssetsByProjectWithClient(projectId, client, [
-    assetId,
-  ]);
-  if (asset === undefined) {
-    throw new AssetRepositoryNotFoundError("Asset not found");
-  }
-  return asset;
-};
-
-const persistAssetMetadataWithClient = async (
-  {
-    projectId,
-    assetId,
-    values,
-  }: {
-    projectId: string;
-    assetId: Asset["id"];
-    values: AssetMetadataUpdate;
-  },
-  client: Client
-) => {
-  const update: {
-    filename?: string | null;
-    description?: string | null;
-    folderId?: string | null;
-  } = {};
-  if (Object.hasOwn(values, "filename")) {
-    update.filename = values.filename ?? null;
-  }
-  if (Object.hasOwn(values, "description")) {
-    update.description = values.description ?? null;
-  }
-  if (Object.hasOwn(values, "folderId")) {
-    update.folderId = values.folderId ?? null;
-  }
-  const result = await client
-    .from("Asset")
-    .update(update)
-    .eq("id", assetId)
-    .eq("projectId", projectId)
-    .select("id")
-    .maybeSingle();
-  assertPostgrestSuccess(result);
-  if (result.data?.id !== assetId) {
-    throw new AssetRepositoryNotFoundError("Asset not found");
-  }
-};
-
 /**
  * Persists asset additions, deletions, metadata updates, and file revisions.
  */
 export const patchAssetsWithClient = async (
-  {
-    projectId,
-    client,
-  }: {
-    projectId: string;
-    client: Client;
-  },
+  { projectId, client }: { projectId: string; client: Client },
   patches: Array<Patch>
 ): Promise<void> => {
   const assetsList = await loadAssetsByProjectWithClient(projectId, client);
@@ -223,11 +143,6 @@ export const patchAssetsWithClient = async (
   const patchedAssets = applyValidatedMapPatches(assetsMap, patches, (value) =>
     assets.parse(value)
   );
-  for (const asset of patchedAssets.values()) {
-    if (asset.projectId !== projectId) {
-      throw new Error(`Asset ${asset.id} belongs to another project`);
-    }
-  }
   const {
     added,
     updated,
@@ -239,8 +154,7 @@ export const patchAssetsWithClient = async (
       previous.name === asset.name &&
       previous.filename === asset.filename &&
       previous.description === asset.description &&
-      previous.folderId === asset.folderId &&
-      serializeAssetMeta(previous.meta) === serializeAssetMeta(asset.meta)
+      previous.folderId === asset.folderId
   );
   if (deletedAssetIds.length !== 0) {
     await deleteAssetsWithClient({ projectId, ids: deletedAssetIds }, client);
@@ -262,37 +176,30 @@ export const patchAssetsWithClient = async (
         client
       );
     }
+    const { filename, description, folderId } = asset;
+    const updatedAsset = await client
+      .from("Asset")
+      .update({
+        filename: filename ?? null,
+        description: description ?? null,
+        folderId: folderId ?? null,
+      })
+      .eq("id", asset.id)
+      .eq("projectId", asset.projectId)
+      .select("filename, description, folderId")
+      .single();
+    assertPostgrestSuccess(updatedAsset);
     if (
-      previous.filename !== asset.filename ||
-      previous.description !== asset.description ||
-      previous.folderId !== asset.folderId
+      updatedAsset.data?.filename !== (filename ?? null) ||
+      updatedAsset.data?.description !== (description ?? null) ||
+      (updatedAsset.data?.folderId ?? null) !== (folderId ?? null)
     ) {
-      const { filename, description, folderId } = asset;
-      await persistAssetMetadataWithClient(
-        {
-          projectId,
-          assetId: asset.id,
-          values: { filename, description, folderId },
-        },
-        client
+      throw new Error(
+        `Asset metadata update was not persisted for ${asset.id}`
       );
     }
-    if (serializeAssetMeta(previous.meta) !== serializeAssetMeta(asset.meta)) {
-      const meta = serializeAssetMeta(asset.meta);
-      const updatedFile = await client
-        .from("File")
-        .update({ meta })
-        .eq("name", asset.name)
-        .select("meta")
-        .single();
-      assertPostgrestSuccess(updatedFile);
-      if (updatedFile.data?.meta !== meta) {
-        throw new Error(
-          `Asset metadata update was not persisted for ${asset.id}`
-        );
-      }
-    }
   }
+
   const addedAssets: Asset[] = added;
   if (addedAssets.length !== 0) {
     const files = await client
@@ -305,14 +212,6 @@ export const patchAssetsWithClient = async (
     assertPostgrestSuccess(files);
 
     const fileNames = new Set(files.data?.map((file) => file.name));
-    const missingFile = addedAssets.find(
-      (asset) => fileNames.has(asset.name) === false
-    );
-    if (missingFile !== undefined) {
-      throw new AssetRepositoryNotFoundError(
-        `Asset file not found for ${missingFile.id}`
-      );
-    }
 
     // restore file when undo is triggered
     const restoredFiles = await client
@@ -321,9 +220,14 @@ export const patchAssetsWithClient = async (
       .in("name", Array.from(fileNames));
     assertPostgrestSuccess(restoredFiles);
 
-    const insertedAssets = await client
-      .from("Asset")
-      .insert(createAssetRows(addedAssets, projectId));
+    const insertedAssets = await client.from("Asset").insert(
+      createAssetRows(
+        // Make sure the corresponding file exists before creating an asset
+        // that references it.
+        addedAssets.filter((asset) => fileNames.has(asset.name)),
+        projectId
+      )
+    );
     assertPostgrestSuccess(insertedAssets);
   }
 };

@@ -1,3 +1,1 @@
-
-    export const assets = {};
-    
+export const assets = {};

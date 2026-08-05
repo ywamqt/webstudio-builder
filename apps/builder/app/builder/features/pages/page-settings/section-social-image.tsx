@@ -7,14 +7,17 @@ import {
   InputField,
   Text,
 } from "@webstudio-is/design-system";
-import { BindableExpressionControl } from "~/builder/shared/bindable-expression";
+import {
+  BindingControl,
+  BindingPopover,
+} from "~/builder/shared/binding-popover";
 import type {
   PageSettingsErrors,
   PageSettingsValues,
 } from "@webstudio-is/project-build/runtime";
 import { ImageControl } from "~/shared/project-settings";
 import { $assets } from "~/shared/sync/data-stores";
-import { isLiteralExpression } from "@webstudio-is/expression";
+import { isLiteralExpression } from "@webstudio-is/sdk";
 import { $pageRootScope } from "../page-utils";
 import { ImageInfo } from "../image-info";
 import { SocialPreview } from "../social-preview";
@@ -55,39 +58,47 @@ export const SocialImageSection = ({
         settings will be used. The optimal dimensions for the image are 1200x630
         px or larger with a 1.91:1 aspect ratio.
       </Text>
-      <BindableExpressionControl
-        expression={values.socialImageUrl}
-        value={socialImageUrl}
-        bound={isLiteralExpression(values.socialImageUrl) === false}
-        allowBindingOverwrite={false}
-        showBinding={showBindingControls}
-        scope={scope}
-        aliases={aliases}
-        onChangeValue={(value) => {
-          onChange({ field: "socialImageUrl", value: JSON.stringify(value) });
-          onChange({ field: "socialImageAssetId", value: "" });
-        }}
-        onChangeExpression={(value) =>
-          onChange({ field: "socialImageUrl", value })
-        }
-        onRemove={(value) =>
-          onChange({
-            field: "socialImageUrl",
-            value: JSON.stringify(value ?? ""),
-          })
-        }
-        renderControl={({ value, readOnly, onChangeValue }) => (
-          <InputErrorsTooltip errors={errors.socialImageUrl}>
-            <InputField
-              placeholder="https://www.url.com"
-              disabled={disabled || readOnly}
-              color={errors.socialImageUrl && "error"}
-              value={value}
-              onChange={(event) => onChangeValue(event.target.value)}
-            />
-          </InputErrorsTooltip>
+      <BindingControl>
+        {showBindingControls && (
+          <BindingPopover
+            scope={scope}
+            aliases={aliases}
+            variant={
+              isLiteralExpression(values.socialImageUrl) ? "default" : "bound"
+            }
+            value={values.socialImageUrl}
+            onChange={(value) => {
+              onChange({
+                field: "socialImageUrl",
+                value,
+              });
+            }}
+            onRemove={(evaluatedValue) => {
+              onChange({
+                field: "socialImageUrl",
+                value: JSON.stringify(evaluatedValue ?? ""),
+              });
+            }}
+          />
         )}
-      />
+        <InputErrorsTooltip errors={errors.socialImageUrl}>
+          <InputField
+            placeholder="https://www.url.com"
+            disabled={
+              disabled || isLiteralExpression(values.socialImageUrl) === false
+            }
+            color={errors.socialImageUrl && "error"}
+            value={socialImageUrl}
+            onChange={(event) => {
+              onChange({
+                field: "socialImageUrl",
+                value: JSON.stringify(event.target.value),
+              });
+              onChange({ field: "socialImageAssetId", value: "" });
+            }}
+          />
+        </InputErrorsTooltip>
+      </BindingControl>
       <Grid gap={1} flow={"column"}>
         <ImageControl
           onAssetIdChange={(socialImageAssetId) => {

@@ -49,9 +49,6 @@ export default defineConfig({
   build: {
     target: "node22",
     minify: false,
-    commonjsOptions: {
-      esmExternals: true,
-    },
     lib: {
       entry: ["src/cli.ts"],
       formats: ["es"],

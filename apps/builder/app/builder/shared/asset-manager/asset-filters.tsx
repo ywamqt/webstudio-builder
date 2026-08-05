@@ -81,6 +81,8 @@ const EXTENSION_TO_DISPLAY_CATEGORY: Record<
   avif: "Images",
   ico: "Images",
   bmp: "Images",
+  tif: "Images",
+  tiff: "Images",
 
   // Fonts
   woff: "Fonts",

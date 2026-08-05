@@ -67,37 +67,6 @@ test("generate resources loader", () => {
   `);
 });
 
-test("generates a configured Assets request on the standard endpoint", () => {
-  const generated = generateResources({
-    scope: createScope(),
-    page: { rootInstanceId: "body" } as Page,
-    dataSources: toMap([
-      {
-        id: "postsVariable",
-        scopeInstanceId: "body",
-        type: "resource",
-        name: "Posts",
-        resourceId: "postsResource",
-      },
-    ]),
-    resources: toMap([
-      {
-        id: "postsResource",
-        name: "Posts",
-        control: "system" as const,
-        url: '"/$resources/assets"',
-        method: "post" as const,
-        headers: [],
-        body: "{ query: { where: { all: [] }, limit: 20, offset: 0 } }",
-      },
-    ]),
-    props: new Map(),
-  });
-
-  expect(generated).toContain('url: "/$resources/assets"');
-  expect(generated).not.toContain('resourceId: "postsResource"');
-});
-
 test("generate variable and use in resources loader", () => {
   expect(
     generateResources({
@@ -418,7 +387,7 @@ test("prevent generating unused system variable", () => {
   `);
 });
 
-test("generate action resource without loading a stale data source", () => {
+test("generate action resource", () => {
   expect(
     generateResources({
       scope: createScope(),
@@ -426,15 +395,7 @@ test("generate action resource without loading a stale data source", () => {
         rootInstanceId: "body",
         systemDataSourceId: "variableParamsId",
       } as Page,
-      dataSources: toMap([
-        {
-          id: "resourceDataSourceId",
-          scopeInstanceId: "body",
-          type: "resource",
-          name: "resourceDataSource",
-          resourceId: "resourceId",
-        },
-      ]),
+      dataSources: new Map(),
       resources: toMap([
         {
           id: "resourceId",

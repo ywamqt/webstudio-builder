@@ -46,15 +46,6 @@ export const getFileNameParts = (fileName: string) => {
   };
 };
 
-export const getAssetContentHash = async (
-  data: ArrayBuffer | ArrayBufferView<ArrayBuffer>
-) => {
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
-};
-
 export type ParsedAssetName = {
   basename: string;
   hash: string;
@@ -162,7 +153,7 @@ const assetFileTypes = {
 
   // Images
   // Note: Cloudflare Image Resizing supports: jpg, jpeg, png, gif, webp, svg, avif
-  // Other formats (bmp, ico) are served as-is without optimization
+  // Other formats (bmp, ico, tif, tiff) are served as-is without optimization
   jpg: binaryFile("image/jpeg"),
   jpeg: binaryFile("image/jpeg"),
   png: binaryFile("image/png"),
@@ -172,6 +163,8 @@ const assetFileTypes = {
   avif: binaryFile("image/avif"),
   ico: binaryFile("image/vnd.microsoft.icon"),
   bmp: binaryFile("image/bmp"),
+  tif: binaryFile("image/tiff"),
+  tiff: binaryFile("image/tiff"),
 
   // Fonts
   woff: binaryFile("font/woff"),

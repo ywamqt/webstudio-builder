@@ -3,7 +3,6 @@ import {
   getCommonAncestorSelector,
   getPasteRootInstanceIds,
   copyWebstudioFragmentMutable,
-  detectFragmentRootStyleConflicts,
   extractWebstudioFragment,
   insertWebstudioFragmentCopy,
   mapFragmentChildrenToCopiedChildren,
@@ -34,7 +33,6 @@ import {
   ActionValue,
   renderTemplate,
   Parameter,
-  token,
 } from "@webstudio-is/template";
 import { findAvailableVariables } from "./data";
 
@@ -340,61 +338,6 @@ test("insert instances with slots", () => {
   ]);
 });
 
-test("remap token selections in inserted slot content", () => {
-  const data = renderData(<$.Body ws:id="bodyId"></$.Body>);
-  const fragment = renderTemplate(
-    <$.Slot ws:id="slotId">
-      <$.Fragment ws:id="fragmentId">
-        <$.HtmlEmbed
-          ws:id="iconId"
-          ws:tokens={[
-            token(
-              "Accordion Icon",
-              css`
-                color: red;
-              `
-            ),
-          ]}
-        />
-      </$.Fragment>
-    </$.Slot>
-  );
-
-  insertWebstudioFragmentCopy({
-    data,
-    fragment,
-    availableVariables: [],
-    projectId: "",
-  });
-
-  const [insertedTokenId] =
-    data.styleSourceSelections.get("iconId")?.values ?? [];
-  expect(data.styleSources.get(insertedTokenId)).toMatchObject({
-    type: "token",
-    name: "Accordion Icon",
-  });
-});
-
-test("preserves legacy HtmlEmbed code when copying internal fragments", () => {
-  const data = renderData(<$.Body ws:id="bodyId"></$.Body>);
-  const fragment = renderTemplate(<$.HtmlEmbed code="<div><span></div>" />);
-
-  insertWebstudioFragmentCopy({
-    data,
-    fragment,
-    availableVariables: [],
-    projectId: "",
-  });
-
-  expect(Array.from(data.props.values())).toContainEqual(
-    expect.objectContaining({
-      name: "code",
-      type: "string",
-      value: "<div><span></div>",
-    })
-  );
-});
-
 test("insert instances with multiple roots", () => {
   const data = renderData(<$.Body ws:id="bodyId"></$.Body>);
   const fragment = renderTemplate(
@@ -485,58 +428,6 @@ test("should merge :root local styles", () => {
       }
     `).trim()
   );
-});
-
-test("does not conflict when a breakpoint id is remapped during insertion", () => {
-  const source = createStub(
-    <ws.root
-      ws:id={ROOT_INSTANCE_ID}
-      ws:style={css`
-        color: red;
-      `}
-    >
-      <$.Body></$.Body>
-    </ws.root>
-  );
-  const target = createStub(
-    <ws.root
-      ws:id={ROOT_INSTANCE_ID}
-      ws:style={css`
-        color: blue;
-      `}
-    >
-      <$.Body></$.Body>
-    </ws.root>
-  );
-  const sourceBreakpoint = source.breakpoints.values().next().value;
-  const targetBreakpoint = target.breakpoints.values().next().value;
-  const sourceStyle = source.styles.values().next().value;
-  if (
-    sourceBreakpoint === undefined ||
-    targetBreakpoint === undefined ||
-    sourceStyle === undefined
-  ) {
-    throw new Error("Expected root style fixtures");
-  }
-  source.breakpoints.clear();
-  source.breakpoints.set(targetBreakpoint.id, {
-    ...sourceBreakpoint,
-    id: targetBreakpoint.id,
-    minWidth: 640,
-  });
-  source.styles.clear();
-  const remappedSourceStyle = {
-    ...sourceStyle,
-    breakpointId: targetBreakpoint.id,
-  };
-  source.styles.set(getStyleDeclKey(remappedSourceStyle), remappedSourceStyle);
-
-  expect(
-    detectFragmentRootStyleConflicts({
-      fragment: extractWebstudioFragment(source, ROOT_INSTANCE_ID),
-      targetData: target,
-    })
-  ).toEqual([]);
 });
 
 test("should copy local styles of duplicated instance", () => {

@@ -12,7 +12,7 @@ import {
 import {
   createAssetFolderRows,
   createAssetRows,
-} from "@webstudio-is/asset-uploader/server";
+} from "@webstudio-is/asset-uploader/index.server";
 import { loadDevBuildByProjectId } from "@webstudio-is/project-build/server";
 import {
   migratePages,
@@ -307,10 +307,7 @@ export const importPublishedProjectBundle = async (
     ignoreVersionCheck?: boolean;
     projectId: string;
   },
-  dependencies: {
-    hasProjectPermit: typeof authorizeProject.hasProjectPermit;
-    loadDevBuildByProjectId: typeof loadDevBuildByProjectId;
-  } = {
+  dependencies = {
     hasProjectPermit: authorizeProject.hasProjectPermit,
     loadDevBuildByProjectId,
   }
@@ -338,15 +335,17 @@ export const importPublishedProjectBundle = async (
     projectId,
   });
 
-  const buildUpdate = createBuildImportUpdate({
-    data,
-    lastTransactionId: crypto.randomUUID(),
-    updatedAt: new Date().toISOString(),
-    version: nextVersion,
-  });
   const update = await ctx.postgrest.client
     .from("Build")
-    .update(buildUpdate, { count: "exact" })
+    .update(
+      createBuildImportUpdate({
+        data,
+        lastTransactionId: crypto.randomUUID(),
+        updatedAt: new Date().toISOString(),
+        version: nextVersion,
+      }),
+      { count: "exact" }
+    )
     .match({
       id: build.id,
       projectId,

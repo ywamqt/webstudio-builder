@@ -46,56 +46,36 @@ export const assertApiTokenPermit = async (ctx: AppContext) => {
   return { token, permits };
 };
 
-const assertProjectPermit = async (
-  ctx: AppContext,
-  projectId: string,
-  permit: ProjectApiPermit
-) => {
-  const allowed = await authorizeProject.hasProjectPermit(
-    { projectId, permit },
-    ctx
-  );
-  if (allowed === false) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "You don't have access to this project",
-    });
-  }
-};
-
 export const assertApiProjectPermit = async (
   ctx: AppContext,
   projectId: string,
   permit: ProjectApiPermit
 ) => {
-  if (ctx.authorization.type === "user") {
-    await assertProjectPermit(ctx, projectId, permit);
-    const permits: ProjectApiPermit[] = [permit];
-    if (
-      permit === "edit" &&
-      (await authorizeProject.hasProjectPermit(
-        { projectId, permit: "build" },
-        ctx
-      ))
-    ) {
-      permits.push("build");
-    }
-    return { type: "user" as const, permits };
-  }
-
-  const tokenAuth = await assertApiTokenPermit(ctx);
-  if (tokenAuth.token.projectId !== projectId) {
+  const { token, permits } = await assertApiTokenPermit(ctx);
+  if (token.projectId !== projectId) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Authorization token is not valid for project",
     });
   }
-  if (tokenAuth.permits.includes(permit) === false) {
+
+  if (permits.includes(permit) === false) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: `Authorization token does not have ${permit} permission`,
     });
   }
-  await assertProjectPermit(ctx, projectId, permit);
-  return { type: "token" as const, ...tokenAuth };
+
+  const canUseProject = await authorizeProject.hasProjectPermit(
+    { projectId, permit },
+    ctx
+  );
+  if (canUseProject === false) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You don't have access to this project",
+    });
+  }
+
+  return { token, permits };
 };

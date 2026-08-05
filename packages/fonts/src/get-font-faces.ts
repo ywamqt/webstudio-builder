@@ -18,14 +18,6 @@ export type FontFace = {
 
 // Use JSON.stringify to escape double quotes and backslashes in strings as it automatically replaces " with \" and \ with \\.
 const sanitizeCssUrl = (str: string) => JSON.stringify(str);
-const fontFormatOrder = Array.from(FONT_FORMATS.values());
-
-const getFontFormat = (asset: PartialFontAsset): string => {
-  const extension = asset.name.slice(asset.name.lastIndexOf(".") + 1);
-  return FONT_FORMATS.has(extension as FontFormat)
-    ? (FONT_FORMATS.get(extension as FontFormat) ?? asset.format)
-    : (FONT_FORMATS.get(asset.format) ?? asset.format);
-};
 
 const formatFace = (
   asset: PartialFontAsset,
@@ -66,41 +58,25 @@ export const getFontFaces = (
   }
 ): Array<FontFace> => {
   const { assetBaseUrl } = options;
-  const faces = new Map<
-    string,
-    Map<string, { asset: PartialFontAsset; format: string; url: string }>
-  >();
-  const seenUrls = new Set<string>();
+  const faces = new Map();
   for (const asset of assets) {
     const url = `${assetBaseUrl}${asset.name}`;
     const assetKey = getKey(asset);
-    if (seenUrls.has(url)) {
+    const face = faces.get(assetKey);
+    const format = FONT_FORMATS.get(asset.format);
+    if (format === undefined) {
+      // Should never happen since we allow only uploading formats we support
       continue;
     }
-    seenUrls.add(url);
-    const format = getFontFormat(asset);
-    const sources = faces.get(assetKey) ?? new Map();
-    const existing = sources.get(format);
-    if (existing === undefined || url < existing.url) {
-      sources.set(format, { asset, format, url });
+
+    if (face === undefined) {
+      const face = formatFace(asset, format, url);
+      faces.set(assetKey, face);
+      continue;
     }
-    faces.set(assetKey, sources);
+
+    // We already have that font face, so we need to add the new src
+    face.src += `, url(${sanitizeCssUrl(url)}) format("${format}")`;
   }
-  return Array.from(faces.values(), (sources) => {
-    const [{ asset, format, url }, ...fallbacks] = Array.from(
-      sources.values()
-    ).sort(
-      (left, right) =>
-        fontFormatOrder.indexOf(left.format) -
-        fontFormatOrder.indexOf(right.format)
-    );
-    const face = formatFace(asset, format, url);
-    face.src += fallbacks
-      .map(
-        ({ format: fallbackFormat, url: fallbackUrl }) =>
-          `, url(${sanitizeCssUrl(fallbackUrl)}) format("${fallbackFormat}")`
-      )
-      .join("");
-    return face;
-  });
+  return Array.from(faces.values());
 };

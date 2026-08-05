@@ -1,51 +1,37 @@
 import { join } from "node:path";
-import { readFile } from "node:fs/promises";
-import { isPathnamePattern, matchPathnameParams } from "@webstudio-is/sdk";
+import { readFile, rm } from "node:fs/promises";
+import { isPathnamePattern } from "@webstudio-is/sdk";
 import {
   baseComponentImportSource,
   createFrameworkComponentRegistry,
 } from "@webstudio-is/sdk-components-registry/framework";
-import {
-  cleanupFrameworkTemplates,
-  routeTemplatesDirectory,
-  type Framework,
-  type FrameworkOptions,
-} from "./framework";
+import type { Framework } from "./framework";
 
 const generateVikeRoute = (pagePath: string) => {
   if (pagePath === "/") {
     return "index";
   }
-  let route = pagePath;
-  const matches = [...matchPathnameParams(pagePath)].reverse();
-  for (const match of matches) {
-    const name = match.groups?.name;
-    if (name === undefined || match.index === undefined) {
-      continue;
-    }
-    route = `${route.slice(0, match.index)}@${name}${route.slice(match.index + match[0].length)}`;
-  }
-  return route;
+  return pagePath;
 };
 
-export const createFramework = async (
-  options: FrameworkOptions = {}
-): Promise<Framework> => {
+export const createFramework = async (): Promise<Framework> => {
+  const routeTemplatesDir = join("app", "route-templates");
+
   const htmlPageTemplate = await readFile(
-    join(routeTemplatesDirectory, "html", "+Page.tsx"),
+    join(routeTemplatesDir, "html", "+Page.tsx"),
     "utf8"
   );
   const htmlHeadTemplate = await readFile(
-    join(routeTemplatesDirectory, "html", "+Head.tsx"),
+    join(routeTemplatesDir, "html", "+Head.tsx"),
     "utf8"
   );
   const htmlDataTemplate = await readFile(
-    join(routeTemplatesDirectory, "html", "+data.ts"),
+    join(routeTemplatesDir, "html", "+data.ts"),
     "utf8"
   );
 
   // cleanup route templates after reading to not bloat generated code
-  await cleanupFrameworkTemplates(options);
+  await rm(routeTemplatesDir, { recursive: true, force: true });
 
   const { components, metas } = createFrameworkComponentRegistry();
 
@@ -58,38 +44,25 @@ export const createFramework = async (
       select: `${baseComponentImportSource}:Select`,
       a: `${baseComponentImportSource}:Link`,
     },
-    html: ({ pagePath, prerenderPaths = [] }) => {
-      if (pagePath === "/*") {
+    html: ({ pagePath }: { pagePath: string }) => {
+      // ignore dynamic pages in static export
+      if (isPathnamePattern(pagePath)) {
         return [];
       }
-      const dynamic = isPathnamePattern(pagePath);
-      if (dynamic && prerenderPaths.length === 0) {
-        return [];
-      }
-      const route = generateVikeRoute(pagePath);
-      const entries = [
+      return [
         {
-          file: join("pages", route, "+Page.tsx"),
+          file: join("pages", generateVikeRoute(pagePath), "+Page.tsx"),
           template: htmlPageTemplate,
         },
         {
-          file: join("pages", route, "+Head.tsx"),
+          file: join("pages", generateVikeRoute(pagePath), "+Head.tsx"),
           template: htmlHeadTemplate,
         },
         {
-          file: join("pages", route, "+data.ts"),
+          file: join("pages", generateVikeRoute(pagePath), "+data.ts"),
           template: htmlDataTemplate,
         },
       ];
-      if (dynamic) {
-        entries.push({
-          file: join("pages", route, "+onBeforePrerenderStart.ts"),
-          template: `export const onBeforePrerenderStart = () => ${JSON.stringify(
-            prerenderPaths
-          )};\n`,
-        });
-      }
-      return entries;
     },
     xml: () => [],
     text: () => [],

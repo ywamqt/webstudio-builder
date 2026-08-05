@@ -173,7 +173,7 @@ export const expectGeneratedAppBuild = async ({
   }
 };
 
-export const withGeneratedPreview = async <Result>({
+const withGeneratedPreview = async <Result>({
   projectId,
   callback,
 }: {

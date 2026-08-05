@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useStore } from "@nanostores/react";
 import { useNavigate } from "@remix-run/react";
 import { $instances, $pages, $project } from "~/shared/sync/data-stores";
@@ -18,87 +18,48 @@ import { $selectedPage } from "../nano-states";
 import { selectPage } from "../nano-states";
 import {
   findPageByIdOrPath,
-  getAllPages,
   isPageTemplate,
   type Instances,
   type Pages,
 } from "@webstudio-is/sdk";
-import {
-  areInstanceSelectorsEqual,
-  type InstanceSelector,
-} from "@webstudio-is/project-build/runtime";
-import { canResolveInstanceSelector } from "../instance-utils/selection";
+import { findPageAndSelectorByInstanceId } from "@webstudio-is/project-build/runtime";
 
 const getDeepLinkedInstanceSelection = ({
-  instanceSelector,
+  instanceId,
   canOpenPageTemplates,
   pages,
   instances,
 }: {
-  instanceSelector: InstanceSelector | undefined;
+  instanceId: string | null;
   canOpenPageTemplates: boolean;
   pages: Pages;
   instances: Instances;
 }) => {
-  if (instanceSelector === undefined) {
+  if (instanceId === null || instances.has(instanceId) === false) {
     return;
   }
 
-  const instanceId = instanceSelector[0];
-  if (
-    instanceId === undefined ||
-    instances.has(instanceId) === false ||
-    canResolveInstanceSelector(instanceSelector, instances) === false
-  ) {
-    return;
-  }
-
-  const rootInstanceId = instanceSelector.at(-1);
-  const page = getAllPages(pages).find(
-    (page) => page.rootInstanceId === rootInstanceId
+  const selection = findPageAndSelectorByInstanceId(
+    pages,
+    instances,
+    instanceId
   );
-  if (
-    page === undefined ||
-    (isPageTemplate(page) && canOpenPageTemplates === false)
-  ) {
+  const page = canOpenPageTemplates
+    ? findPageByIdOrPath(selection.pageId, pages, { includeTemplates: true })
+    : findPageByIdOrPath(selection.pageId, pages);
+  if (page?.rootInstanceId !== selection.instanceSelector.at(-1)) {
     return;
   }
-  return { pageId: page.id, instanceSelector };
+  return selection;
 };
 
-const shouldNavigateToPageState = ({
-  isUrlStateInitialized,
-  isSamePageState,
-  searchParamsInstanceSelector,
-  instanceSelector,
-}: {
-  isUrlStateInitialized: boolean;
-  isSamePageState: boolean;
-  searchParamsInstanceSelector: InstanceSelector | undefined;
-  instanceSelector: InstanceSelector | undefined;
-}) =>
-  isUrlStateInitialized &&
-  (isSamePageState === false ||
-    (searchParamsInstanceSelector === undefined
-      ? instanceSelector !== undefined
-      : areInstanceSelectorsEqual(
-          searchParamsInstanceSelector,
-          instanceSelector
-        ) === false));
-
-export const __testing__ = {
-  getDeepLinkedInstanceSelection,
-  shouldNavigateToPageState,
-};
-
-const getInstanceSelectorFromUrl = (searchParams: URLSearchParams) =>
-  searchParams.get("instance")?.split(",");
+export const __testing__ = { getDeepLinkedInstanceSelection };
 
 const setPageStateFromUrl = () => {
   const searchParams = new URLSearchParams(window.location.search);
   const pages = $pages.get();
   if (pages === undefined) {
-    return false;
+    return;
   }
 
   let mode = searchParams.get("mode");
@@ -120,9 +81,8 @@ const setPageStateFromUrl = () => {
     )?.id ?? pages.homePageId;
 
   $selectedPageHash.set({ hash: searchParams.get("pageHash") ?? "" });
-  const requestedInstanceSelector = getInstanceSelectorFromUrl(searchParams);
   const instanceSelection = getDeepLinkedInstanceSelection({
-    instanceSelector: requestedInstanceSelector,
+    instanceId: searchParams.get("instanceId"),
     canOpenPageTemplates: $canOpenPageTemplates.get(),
     pages,
     instances: $instances.get(),
@@ -130,10 +90,9 @@ const setPageStateFromUrl = () => {
   if (instanceSelection !== undefined) {
     $selectedPageId.set(instanceSelection.pageId);
     selectInstance(instanceSelection.instanceSelector);
-    return true;
+    return;
   }
   selectPage(pageId);
-  return true;
 };
 
 /**
@@ -145,26 +104,25 @@ const setPageStateFromUrl = () => {
  *  - atoms to searchParams
  *    - on atom change
  */
-export const useSyncPageUrl = ({ isDataLoaded }: { isDataLoaded: boolean }) => {
+export const useSyncPageUrl = () => {
   const navigate = useNavigate();
-  const [isUrlStateInitialized, setIsUrlStateInitialized] = useState(false);
   const page = useStore($selectedPage);
   const pageHash = useStore($selectedPageHash);
   const builderMode = useStore($builderMode);
   const selectedInstanceSelector = useStore($selectedInstanceSelector);
   const canOpenPageTemplate = useStore($canOpenPageTemplates);
 
-  // Apply initial URL state only after the sync client has finished loading.
-  // Individual stores can contain intermediate data before then.
+  // Get pageId and pageHash from URL
+  // once pages are loaded
   useEffect(() => {
-    if (
-      isDataLoaded &&
-      isUrlStateInitialized === false &&
-      setPageStateFromUrl()
-    ) {
-      setIsUrlStateInitialized(true);
-    }
-  }, [isDataLoaded, isUrlStateInitialized]);
+    const unsubscribe = $pages.subscribe((pages) => {
+      if (pages) {
+        unsubscribe();
+        setPageStateFromUrl();
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     window.addEventListener("popstate", setPageStateFromUrl);
@@ -185,44 +143,34 @@ export const useSyncPageUrl = ({ isDataLoaded }: { isDataLoaded: boolean }) => {
 
     const searchParamsPageId = searchParams.get("pageId") ?? pages.homePageId;
     const searchParamsPageHash = searchParams.get("pageHash") ?? "";
-    const searchParamsInstanceSelector =
-      getInstanceSelectorFromUrl(searchParams);
+    const searchParamsInstanceId = searchParams.get("instanceId") ?? undefined;
     const searchParamsModeRaw = searchParams.get("mode");
     const searchParamsMode = isBuilderMode(searchParamsModeRaw)
       ? searchParamsModeRaw
       : undefined;
     const builderModeParam = builderMode === "design" ? undefined : builderMode;
     const searchParamsSafemode = searchParams.get("safemode");
-    const instanceSelector =
-      selectedInstanceSelector === undefined ||
-      selectedInstanceSelector[0] === page.rootInstanceId ||
-      canResolveInstanceSelector(selectedInstanceSelector, $instances.get()) ===
-        false
+    const selectedInstanceId = selectedInstanceSelector?.[0];
+    const instanceId =
+      selectedInstanceId === page.rootInstanceId ||
+      $instances.get().has(selectedInstanceId ?? "") === false
         ? undefined
-        : selectedInstanceSelector;
+        : selectedInstanceId;
 
     const isSamePageState =
       searchParamsPageId === page.id &&
       searchParamsPageHash === pageHash.hash &&
       searchParamsMode === builderModeParam;
 
-    // Do not navigate before initial URL state is applied, on popstate change,
-    // or if params match.
-    if (
-      shouldNavigateToPageState({
-        isUrlStateInitialized,
-        isSamePageState,
-        searchParamsInstanceSelector,
-        instanceSelector,
-      }) === false
-    ) {
+    // Do not navigate on popstate change or if params match
+    if (isSamePageState && searchParamsInstanceId === instanceId) {
       return;
     }
 
     navigate(
       builderPath({
         pageId: page.id === pages.homePageId ? undefined : page.id,
-        instanceSelector,
+        instanceId,
         authToken: $authToken.get(),
         pageHash: pageHash.hash === "" ? undefined : pageHash.hash,
         mode: builderModeParam,
@@ -230,14 +178,7 @@ export const useSyncPageUrl = ({ isDataLoaded }: { isDataLoaded: boolean }) => {
       }),
       { replace: isSamePageState }
     );
-  }, [
-    builderMode,
-    isUrlStateInitialized,
-    navigate,
-    page,
-    pageHash,
-    selectedInstanceSelector,
-  ]);
+  }, [builderMode, navigate, page, pageHash, selectedInstanceSelector]);
 
   useEffect(() => {
     const pages = $pages.get();

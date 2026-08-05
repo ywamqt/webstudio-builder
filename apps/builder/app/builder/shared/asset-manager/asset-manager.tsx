@@ -32,7 +32,6 @@ import {
   acceptToMimePatterns,
   createAssetFolderHierarchy,
   doesAssetMatchMimePatterns,
-  formatAssetName,
   type Asset,
   type AllowedFileExtension,
 } from "@webstudio-is/sdk";
@@ -423,6 +422,11 @@ export const AssetManager = ({
   const handleFocusChange = (item: AssetManagerSelection, focused: boolean) => {
     if (focused) {
       setSelection(item);
+    } else if (
+      forcedSelection === undefined &&
+      isSameAssetManagerSelection(selection, item)
+    ) {
+      setSelection(undefined);
     }
   };
 
@@ -554,32 +558,6 @@ export const AssetManager = ({
       ),
     [assetContainers]
   );
-
-  const selectedBreadcrumbItem = useMemo(() => {
-    if (selection === undefined || forcedSelection !== undefined) {
-      return;
-    }
-    if (selection.type === "folder") {
-      return folders.has(selection.id) ? selection : undefined;
-    }
-    const asset = compatibleContainers.find(
-      ({ asset }) => asset.id === selection.id
-    )?.asset;
-    if (asset === undefined) {
-      return;
-    }
-    return {
-      type: "asset" as const,
-      folderId: folderHierarchy.resolveFolderId(asset.folderId),
-      name: formatAssetName(asset),
-    };
-  }, [
-    compatibleContainers,
-    folderHierarchy,
-    folders,
-    forcedSelection,
-    selection,
-  ]);
 
   const normalizeItems = useCallback(
     (items: readonly AssetManagerSelection[]) =>
@@ -749,32 +727,13 @@ export const AssetManager = ({
       event.altKey === false &&
       event.shiftKey === false &&
       ["backspace", "delete"].includes(key);
-    const isSelectAllCommand =
-      hasCommandModifier &&
-      event.altKey === false &&
-      event.shiftKey === false &&
-      key === "a";
-    if (
-      isItemCommand === false &&
-      isDeleteCommand === false &&
-      isSelectAllCommand === false
-    ) {
+    if (isItemCommand === false && isDeleteCommand === false) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
 
-    if (isSelectAllCommand) {
-      const renderedItems = navigableItems.filter((item) =>
-        itemElements.current.has(getAssetManagerSelectionKey(item))
-      );
-      if (renderedItems.length > 0) {
-        setForcedSelection(renderedItems);
-        setSelectionAnchor(renderedItems[0]);
-        setSelection(renderedItems[0]);
-        announceSelection(renderedItems);
-      }
-    } else if (key === "c" && shortcutItems.length > 0) {
+    if (key === "c" && shortcutItems.length > 0) {
       copyItems(shortcutItems);
     } else if (key === "x" && shortcutItems.length > 0) {
       cutItems(shortcutItems);
@@ -975,7 +934,6 @@ export const AssetManager = ({
           <AssetFolderBreadcrumbs
             hierarchy={folderHierarchy}
             folderId={currentFolderId}
-            selectedItem={selectedBreadcrumbItem}
             onChange={setCurrentFolderId}
             canPaste={
               canManageFolders ? canPasteAssetManagerClipboard : undefined

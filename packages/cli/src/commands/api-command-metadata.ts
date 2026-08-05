@@ -95,7 +95,7 @@ export const topLevelCliCommandMetadata = [
     command: "permissions",
     description:
       "Show API, role, publish, and domain capabilities for the configured share-link token",
-    examples: ["webstudio permissions", "webstudio permissions --json"],
+    examples: ["webstudio permissions --json"],
   },
   ...cliCommandGroupMetadata,
   {
@@ -144,8 +144,6 @@ const apiCommandOptionsByCommand: Partial<
   "get-marketplace-product": apiCommand.projectSettingsCommandOptions,
   "update-marketplace-product":
     apiCommand.updateMarketplaceProductCommandOptions,
-  "submit-marketplace-product":
-    apiCommand.submitMarketplaceProductCommandOptions,
   "list-redirects": apiCommand.paginatedListCommandOptions,
   "create-redirect": apiCommand.createRedirectCommandOptions,
   "update-redirect": apiCommand.updateRedirectCommandOptions,
@@ -202,9 +200,6 @@ const apiCommandOptionsByCommand: Partial<
   "update-variable": apiCommand.updateVariableCommandOptions,
   "delete-variable": apiCommand.deleteVariableCommandOptions,
   "list-resources": apiCommand.scopedCommandOptions,
-  "get-assets-resource": apiCommand.assetResourceCommandOptions,
-  "create-assets-resource": apiCommand.inputCommandOptions,
-  "update-assets-resource": apiCommand.inputCommandOptions,
   "list-publishes": apiCommand.paginatedListCommandOptions,
   "create-resource": apiCommand.createResourceCommandOptions,
   "update-resource": apiCommand.updateResourceCommandOptions,
@@ -225,7 +220,6 @@ const apiCommandOptionsByCommand: Partial<
   "find-asset-usage": apiCommand.assetUsageCommandOptions,
   "replace-asset": apiCommand.replaceAssetCommandOptions,
   "delete-asset": apiCommand.deleteAssetCommandOptions,
-  permissions: apiCommand.permissionsCommandOptions,
 };
 
 export const apiCommandMetadata = publicApiOperations.map((operation) => ({
@@ -247,9 +241,6 @@ export const apiCommandMetadata = publicApiOperations.map((operation) => ({
 export const highLevelCliCommands = [
   { command: "audit", operation: "audit" },
   { command: "permissions", operation: "permissions" },
-  { command: "get-assets-resource", operation: "get-assets-resource" },
-  { command: "create-assets-resource", operation: "create-assets-resource" },
-  { command: "update-assets-resource", operation: "update-assets-resource" },
   {
     command: "get-marketplace-product",
     operation: "get-marketplace-product",
@@ -257,10 +248,6 @@ export const highLevelCliCommands = [
   {
     command: "update-marketplace-product",
     operation: "update-marketplace-product",
-  },
-  {
-    command: "submit-marketplace-product",
-    operation: "submit-marketplace-product",
   },
   { command: "set-redirects", operation: "set-redirects" },
   { command: "publish deploy", operation: "publish" },

@@ -1,7 +1,4 @@
 import type { Server } from "node:http";
-import { fontFormat, fontMeta } from "@webstudio-is/fonts";
-import { getFileNameParts, type Asset } from "@webstudio-is/sdk";
-import { assetsUploadsApiUrl } from "@webstudio-is/sdk/runtime";
 import { migratePages } from "@webstudio-is/project-migrations/pages";
 import React from "react";
 import type { BuilderState } from "@webstudio-is/project-build/state";
@@ -13,7 +10,6 @@ import type { EvaluationToolCall } from "./validate";
 import {
   createRuntimeFixtureBuildSnapshot,
   publicApiCommandByOperationId,
-  readRuntimeFixtureRequestBody,
   runtimeFixturePermissions,
   startRuntimeFixtureApi,
 } from "../../scripts/runtime-fixture-api";
@@ -44,8 +40,6 @@ const createPersistedPages = (project: EvaluationProject) => ({
 });
 
 const stateToProject = (state: BuilderState): EvaluationProject => ({
-  assets: Array.from(state.assets?.values() ?? []),
-  assetFolders: Array.from(state.assetFolders?.values() ?? []),
   pages: Array.from(state.pages?.pages.values() ?? []).map((page) => ({
     id: page.id,
     name: page.name,
@@ -116,8 +110,7 @@ export const startHighImpactFixtureApi = async (
     styleSources: fixture.project.styleSources,
     styleSourceSelections: fixture.project.styleSourceSelections,
     styles: fixture.project.styles,
-    assets: fixture.project.assets,
-    assetFolders: fixture.project.assetFolders,
+    assets: [],
     projectSettings: { meta: {}, compiler: {} },
   };
   let state = createBuilderStateFromBuildData(build as never);
@@ -126,74 +119,8 @@ export const startHighImpactFixtureApi = async (
   const calls: EvaluationToolCall[] = [];
   let origin = "";
   const fixtureApi = await startRuntimeFixtureApi(
-    async ({ request, response, pathname, operationPath, readInput }) => {
+    async ({ operationPath, readInput }) => {
       let data: unknown;
-      if (
-        request.method === "POST" &&
-        pathname.startsWith(`${assetsUploadsApiUrl}/`)
-      ) {
-        const url = new URL(request.url ?? "", origin);
-        const name = decodeURIComponent(
-          pathname.slice(`${assetsUploadsApiUrl}/`.length)
-        );
-        const body = await readRuntimeFixtureRequestBody(request);
-        const type = url.searchParams.get("type");
-        const formatValue = url.searchParams.get("format");
-        if (
-          url.searchParams.get("projectId") !== projectId ||
-          (type !== "font" && type !== "file") ||
-          formatValue === null ||
-          formatValue.length === 0 ||
-          body.byteLength === 0
-        ) {
-          throw new Error("Invalid asset upload request.");
-        }
-        const description = request.headers["x-webstudio-asset-description"];
-        const folderId = url.searchParams.get("folderId") ?? undefined;
-        const assetBase = {
-          id: `evaluation-asset-${generatedId++}`,
-          projectId,
-          name,
-          filename: getFileNameParts(name).basename,
-          description: typeof description === "string" ? description : null,
-          size: body.byteLength,
-          ...(folderId === undefined ? {} : { folderId }),
-          createdAt: "2026-01-01T00:00:00.000Z",
-        };
-        const asset: Asset =
-          type === "font"
-            ? {
-                ...assetBase,
-                type,
-                format: fontFormat.parse(formatValue),
-                meta: fontMeta.parse(
-                  JSON.parse(
-                    String(request.headers["x-webstudio-asset-meta"] ?? "{}")
-                  )
-                ),
-              }
-            : { ...assetBase, type, format: formatValue, meta: {} };
-        calls.push({
-          name: "upload-asset",
-          arguments: {
-            name,
-            type,
-            format: asset.format,
-            meta: asset.meta,
-            folderId,
-          },
-        });
-        state = {
-          ...state,
-          assets: new Map(state.assets).set(asset.id, asset),
-        };
-        version += 1;
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(
-          JSON.stringify({ uploadedAssets: [asset], deduplicated: false })
-        );
-        return;
-      }
       if (operationPath === "build.loadProjectBundleByProjectId") {
         data = createLocalProjectBundleFromSessionSnapshot(
           {

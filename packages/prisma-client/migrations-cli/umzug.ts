@@ -3,12 +3,13 @@ import fs from "node:fs";
 import * as prismaMigrations from "./prisma-migrations";
 import * as logger from "./logger";
 import { UserError } from "./errors";
-import { cliExecute } from "./prisma-command";
-import { migrationsDir } from "./prisma-paths";
 
 export const umzug = new Umzug({
   migrations: {
-    glob: [`./${"[0-9]".repeat(14)}_*`, { cwd: migrationsDir }],
+    glob: [
+      `./${"[0-9]".repeat(14)}_*`,
+      { cwd: prismaMigrations.migrationsDir },
+    ],
     resolve(params) {
       const sqlFilePath = prismaMigrations.getMigrationFilePath(
         params.name,
@@ -24,7 +25,7 @@ export const umzug = new Umzug({
           ...params,
           up: async () => {
             await prismaMigrations.setStarted(params.name, sqlFilePath);
-            await cliExecute(sqlFilePath);
+            await prismaMigrations.cliExecute(sqlFilePath);
           },
         };
       }

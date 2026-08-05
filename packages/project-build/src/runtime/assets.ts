@@ -10,7 +10,6 @@ import {
   isAllowedMimeCategory,
   formatAssetName,
   getAssetDisplayNameParts,
-  mergeAssetMeta,
   parseAssetName,
   type Asset,
   type DataSource,
@@ -21,7 +20,6 @@ import {
   type StyleDecl,
   type Styles,
   assetType,
-  assetMetaUpdate,
   fileAsset,
   fontAsset,
   imageAsset,
@@ -70,26 +68,10 @@ export const assetReplaceInput = z.object({
   toAssetId: z.string(),
 });
 
-export const assetDeleteInput = z
-  .object({
-    assetIds: z.array(z.string().trim().min(1)).min(1).optional(),
-    assetIdPrefixes: z.array(z.string().trim().min(1)).min(1).optional(),
-    assetIdsOrPrefixes: z
-      .array(z.string().trim().min(1))
-      .min(1)
-      .describe(
-        "Deprecated compatibility alias. Use assetIds for exact ids or assetIdPrefixes for prefixes."
-      )
-      .optional(),
-    force: z.boolean().optional(),
-  })
-  .refine(
-    ({ assetIds, assetIdPrefixes, assetIdsOrPrefixes }) =>
-      assetIds !== undefined ||
-      assetIdPrefixes !== undefined ||
-      assetIdsOrPrefixes !== undefined,
-    { message: "Provide assetIds or assetIdPrefixes" }
-  );
+export const assetDeleteInput = z.object({
+  assetIdsOrPrefixes: z.array(z.string()).min(1),
+  force: z.boolean().optional(),
+});
 
 export const assetUpdateInput = z.object({
   assetId: z.string(),
@@ -103,11 +85,6 @@ export const assetUpdateInput = z.object({
         .optional(),
       description: z.union([z.string(), z.null()]).optional(),
       folderId: z.union([z.string().min(1), z.null()]).optional(),
-      meta: assetMetaUpdate
-        .describe(
-          "Type-specific metadata: family/style/weight or variationAxes for fonts, width/height for images, and no fields for generic files."
-        )
-        .optional(),
     })
     .refine(
       (values) => Object.keys(values).length > 0,
@@ -680,22 +657,6 @@ export const updateAsset = (
   }
 
   const patches: BuilderPatchChange["patches"] = [];
-  if (input.values.meta !== undefined) {
-    const meta = mergeAssetMeta(asset.type, asset.meta, input.values.meta);
-    if (meta === undefined) {
-      return throwBuilderRuntimeError(
-        "BAD_REQUEST",
-        `Invalid metadata for ${asset.type} asset`
-      );
-    }
-    if (deepEqual(asset.meta, meta) === false) {
-      patches.push({
-        op: "replace",
-        path: [asset.id, "meta"],
-        value: meta,
-      });
-    }
-  }
   if (input.values.filename !== undefined) {
     if (isValidFilename(input.values.filename) === false) {
       return throwBuilderRuntimeError("BAD_REQUEST", "Invalid filename");
@@ -1136,15 +1097,10 @@ export const deleteAssets = (
   input: z.infer<typeof assetDeleteInput>
 ) => {
   const assets = Array.from(getRequiredAssets(state).values());
-  const assetIds = new Set(input.assetIds);
-  const prefixes = [
-    ...(input.assetIdPrefixes ?? []),
-    ...(input.assetIdsOrPrefixes ?? []),
-  ];
-  const selectedAssets = assets.filter(
-    (asset) =>
-      assetIds.has(asset.id) ||
-      prefixes.some((value) => asset.id === value || asset.id.startsWith(value))
+  const selectedAssets = assets.filter((asset) =>
+    input.assetIdsOrPrefixes.some(
+      (value) => asset.id === value || asset.id.startsWith(value)
+    )
   );
   if (selectedAssets.length === 0) {
     return createRuntimeMutation({

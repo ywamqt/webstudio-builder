@@ -45,16 +45,11 @@ export const fontMetaStatic = z.object({
 
 export type FontMetaStatic = z.infer<typeof fontMetaStatic>;
 
-export const fontMetaVariable = z.object({
+const fontMetaVariable = z.object({
   family: z.string(),
   variationAxes: variationAxes,
 });
 
 export const fontMeta = z.union([fontMetaStatic, fontMetaVariable]);
-
-export const fontMetaUpdate = z.union([
-  fontMetaStatic.partial().strict(),
-  fontMetaVariable.partial().strict(),
-]);
 
 export type FontMeta = z.infer<typeof fontMeta>;

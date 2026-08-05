@@ -1,9 +1,5 @@
 import { z } from "zod";
-import {
-  findWsAuthRoute,
-  parseWsAuth,
-  type WsAuthRoute,
-} from "@webstudio-is/wsauth";
+import { parseWsAuth, type WsAuthRoute } from "@webstudio-is/wsauth";
 
 const emailAddress = z.string().email();
 
@@ -51,17 +47,6 @@ export const validateProjectAuth = (auth: string) => {
 
 export const parseProjectAuthRoutes = (auth: string | undefined) =>
   parseWsAuth(auth ?? "");
-
-export const getProjectBasicAuthCredentials = (
-  auth: string | undefined,
-  pathname: string
-) => {
-  const route = findWsAuthRoute(parseProjectAuthRoutes(auth).routes, pathname);
-  if (route?.auth.method !== "basic") {
-    return;
-  }
-  return { username: route.auth.login, password: route.auth.password };
-};
 
 export const validateProjectAuthRouteSyntax = (route: string) => {
   const result = parseWsAuth(

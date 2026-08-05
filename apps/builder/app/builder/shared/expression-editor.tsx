@@ -28,19 +28,18 @@ import {
 import { javascript } from "@codemirror/lang-javascript";
 import { textVariants, css, rawTheme } from "@webstudio-is/design-system";
 import {
+  decodeDataVariableId,
   lintExpression,
   allowedStringMethods,
   allowedArrayMethods,
   getExpressionValueKind,
-} from "@webstudio-is/expression";
-import { decodeDataVariableId } from "@webstudio-is/sdk";
+} from "@webstudio-is/sdk";
 import {
   EditorContent,
   EditorDialog,
   EditorDialogButton,
   EditorDialogControl,
   type EditorApi,
-  getCodeEditorCssVars,
   normalizeEditorValue,
 } from "~/shared/code-editor-base";
 import {
@@ -520,22 +519,9 @@ const emptyScope: Scope = {};
 const emptyAliases: Aliases = new Map();
 
 const wrapperStyle = css({
-  variants: {
-    size: {
-      default: {
-        // 1 line is 16px; show at most 20 lines.
-        "--ws-code-editor-max-height": "320px",
-      },
-      full: {
-        ...getCodeEditorCssVars({ minHeight: "100%", maxHeight: "100%" }),
-        height: "100%",
-        minHeight: 0,
-        overflow: "hidden",
-        "& > div, & .cm-editor, & .cm-scroller": { height: "100%" },
-      },
-    },
-  },
-  defaultVariants: { size: "default" },
+  // 1 line is 16px
+  // set and max 20 lines
+  "--ws-code-editor-max-height": "320px",
 });
 
 const linterTooltipTheme = EditorView.theme({
@@ -560,13 +546,6 @@ const linterTooltipTheme = EditorView.theme({
   },
 });
 
-const fullSizeEditorTheme = EditorView.theme({
-  ".cm-scroller": {
-    minHeight: 0,
-    overflow: "auto",
-  },
-});
-
 const expressionLinter = linter((view) => {
   const [{ scope }] = view.state.facet(VariablesData);
   return lintExpression({
@@ -577,20 +556,16 @@ const expressionLinter = linter((view) => {
 });
 
 export const ExpressionEditor = ({
-  "aria-label": ariaLabel,
   editorApiRef,
   scope = emptyScope,
   aliases = emptyAliases,
   color,
-  size,
-  chromeless = false,
   autoFocus = false,
   readOnly = false,
   value,
   onChange,
   onChangeComplete,
 }: {
-  "aria-label"?: string;
   editorApiRef?: RefObject<undefined | EditorApi>;
   /**
    * object with variables and their data to autocomplete
@@ -601,8 +576,6 @@ export const ExpressionEditor = ({
    */
   aliases?: Aliases;
   color?: "error";
-  size?: "default" | "full";
-  chromeless?: boolean;
   autoFocus?: boolean;
   readOnly?: boolean;
   value?: string;
@@ -666,9 +639,8 @@ export const ExpressionEditor = ({
       keymap.of([...closeBracketsKeymap, ...completionKeymap]),
       expressionLinter,
       linterTooltipTheme,
-      ...(size === "full" ? [fullSizeEditorTheme] : []),
     ],
-    [scopeWithUnsetVariables, aliasesWithUnsetVariables, size]
+    [scopeWithUnsetVariables, aliasesWithUnsetVariables]
   );
 
   // prevent clicking on autocomplete options propagating to body
@@ -691,11 +663,9 @@ export const ExpressionEditor = ({
 
   const content = (
     <EditorContent
-      aria-label={ariaLabel}
       editorApiRef={editorApiRef}
       extensions={extensions}
       invalid={color === "error"}
-      chromeless={chromeless}
       readOnly={readOnly}
       autoFocus={autoFocus}
       value={expressionWithUnsetVariables}
@@ -716,12 +686,8 @@ export const ExpressionEditor = ({
     />
   );
 
-  if (chromeless) {
-    return <div className={wrapperStyle({ size })}>{content}</div>;
-  }
-
   return (
-    <div className={wrapperStyle({ size })}>
+    <div className={wrapperStyle.toString()}>
       <EditorDialogControl>
         {content}
         <EditorDialog title="Expression Editor" content={content}>

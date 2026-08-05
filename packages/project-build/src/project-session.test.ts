@@ -233,31 +233,18 @@ const createSession = ({
 describe("project session", () => {
   test("round-trips hydrated restore transactions through JSON", () => {
     const state = createSnapshot().state;
-    state.assetFolders = new Map([
-      [
-        "folder-1",
-        {
-          id: "folder-1",
-          projectId: "project-1",
-          name: "Posts",
-          createdAt: "2026-07-24T00:00:00.000Z",
-        },
-      ],
-    ]);
     const transaction: BuilderPatchTransaction = {
       id: "restore",
-      payload: (["pages", "props", "assetFolders"] as const).map(
-        (namespace) => ({
-          namespace,
-          patches: [
-            {
-              op: "replace" as const,
-              path: [],
-              value: state[namespace],
-            },
-          ],
-        })
-      ),
+      payload: ["pages", "props"].map((namespace) => ({
+        namespace: namespace as "pages" | "props",
+        patches: [
+          {
+            op: "replace",
+            path: [],
+            value: state[namespace as "pages" | "props"],
+          },
+        ],
+      })),
     };
 
     const serialized = JSON.parse(
@@ -277,7 +264,6 @@ describe("project session", () => {
       folders: expect.any(Map),
     });
     expect(getPatchValue(1)).toBeInstanceOf(Map);
-    expect(getPatchValue(2)).toEqual(state.assetFolders);
   });
 
   test("round-trips an explicitly empty marketplace product", () => {
@@ -431,52 +417,6 @@ describe("project session", () => {
       ["projectSettings"],
       ["pages"],
     ]);
-  });
-
-  test("creates marketplace metadata from an unconfigured session", async () => {
-    const remote = createSnapshot();
-    remote.state.marketplaceProduct = undefined;
-    const transport = createMutableTransport(remote);
-    const session = createSession({ storage: createStorage(), transport });
-    const marketplaceProduct = {
-      category: "pageTemplates" as const,
-      name: "Acme Template",
-      thumbnailAssetId: "asset-id",
-      author: "Acme Studio",
-      email: "hello@example.com",
-      website: "https://example.com",
-      issues: "",
-      description: "Reusable template project for Acme landing pages.",
-    };
-
-    const update = await session.mutate(
-      "projectSettings.updateMarketplaceProduct",
-      marketplaceProduct
-    );
-    expect(update.state.committed).toBe(true);
-
-    await session.refresh(["marketplaceProduct"]);
-    const product = await session.read(
-      "projectSettings.getMarketplaceProduct",
-      {}
-    );
-    expect(product.result).toEqual({ marketplaceProduct });
-  });
-
-  test("loads configured marketplace metadata in a cold session", async () => {
-    const remote = createSnapshot();
-    const transport = createTransport(remote);
-    const session = createSession({ storage: createStorage(), transport });
-
-    const product = await session.read(
-      "projectSettings.getMarketplaceProduct",
-      {}
-    );
-
-    expect(product.result).toEqual({
-      marketplaceProduct: remote.state.marketplaceProduct,
-    });
-    expect(transport.loadedNamespaces).toEqual([["marketplaceProduct"]]);
   });
 
   test("duplicates a page from a cold session with assets hydrated", async () => {

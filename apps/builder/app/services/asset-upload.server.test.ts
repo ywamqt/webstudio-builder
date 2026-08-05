@@ -9,13 +9,10 @@ afterEach(() => {
 });
 
 test("keeps raw browser upload request bodies unchanged", async () => {
-  const request = new Request(
-    "https://webstudio.is/rest/assets/uploads/image.png",
-    {
-      method: "POST",
-      body: "raw file",
-    }
-  );
+  const request = new Request("https://webstudio.is/rest/assets/image.png", {
+    method: "POST",
+    body: "raw file",
+  });
 
   await expect(
     new Response(
@@ -25,14 +22,11 @@ test("keeps raw browser upload request bodies unchanged", async () => {
 });
 
 test("keeps browser JSON file uploads as JSON file content", async () => {
-  const request = new Request(
-    "https://webstudio.is/rest/assets/uploads/data.json",
-    {
-      method: "POST",
-      body: JSON.stringify({ value: 1 }),
-      headers: { "Content-Type": "application/json" },
-    }
-  );
+  const request = new Request("https://webstudio.is/rest/assets/data.json", {
+    method: "POST",
+    body: JSON.stringify({ value: 1 }),
+    headers: { "Content-Type": "application/json" },
+  });
 
   await expect(
     new Response(await getBrowserUploadBody(request, "application/json")).text()
@@ -42,14 +36,11 @@ test("keeps browser JSON file uploads as JSON file content", async () => {
 test("keeps browser URL image uploads by fetching the remote image body", async () => {
   const fetch = vi.fn(async () => new Response("remote image"));
   vi.stubGlobal("fetch", fetch);
-  const request = new Request(
-    "https://webstudio.is/rest/assets/uploads/image.png",
-    {
-      method: "POST",
-      body: JSON.stringify({ url: "https://example.com/image.png" }),
-      headers: { "Content-Type": "application/json" },
-    }
-  );
+  const request = new Request("https://webstudio.is/rest/assets/image.png", {
+    method: "POST",
+    body: JSON.stringify({ url: "https://example.com/image.png" }),
+    headers: { "Content-Type": "application/json" },
+  });
 
   await expect(
     new Response(await getBrowserUploadBody(request, "application/json")).text()
@@ -65,14 +56,11 @@ test("reports browser URL image fetch failures", async () => {
     "fetch",
     vi.fn(async () => new Response("not found", { status: 404 }))
   );
-  const request = new Request(
-    "https://webstudio.is/rest/assets/uploads/image.png",
-    {
-      method: "POST",
-      body: JSON.stringify({ url: "https://example.com/image.png" }),
-      headers: { "Content-Type": "application/json" },
-    }
-  );
+  const request = new Request("https://webstudio.is/rest/assets/image.png", {
+    method: "POST",
+    body: JSON.stringify({ url: "https://example.com/image.png" }),
+    headers: { "Content-Type": "application/json" },
+  });
 
   await expect(
     getBrowserUploadBody(request, "application/json")

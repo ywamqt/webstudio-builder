@@ -1,24 +1,20 @@
 import { Sha256 } from "@aws-crypto/sha256-js";
 import { SignatureV4 } from "@smithy/signature-v4";
-import type { AssetObjectStore } from "../../client";
+import type { AssetClient } from "../../client";
 import { uploadToS3 } from "./upload";
-import { readFromS3 } from "./read";
 
-type S3StorageOptions = {
+type S3ClientOptions = {
   endpoint: string;
   region: string;
   accessKeyId: string;
   secretAccessKey: string;
   bucket: string;
-};
-
-export type S3ClientOptions = S3StorageOptions & {
   acl?: string;
   maxUploadSize: number;
 };
 
-const createS3Signer = (options: S3StorageOptions) =>
-  new SignatureV4({
+export const createS3Client = (options: S3ClientOptions): AssetClient => {
+  const signer = new SignatureV4({
     credentials: {
       accessKeyId: options.accessKeyId,
       secretAccessKey: options.secretAccessKey,
@@ -26,20 +22,15 @@ const createS3Signer = (options: S3StorageOptions) =>
     region: options.region,
     service: "s3",
     sha256: Sha256,
-    // Paths are encoded centrally by createS3ObjectUrl.
+    // should never be enabled when work with s3
     uriEscapePath: false,
   });
 
-export const createS3AssetObjectStore = (
-  options: S3ClientOptions
-): AssetObjectStore => {
-  const signer = createS3Signer(options);
-  const uploadFile: AssetObjectStore["uploadFile"] = async (
+  const uploadFile: AssetClient["uploadFile"] = async (
     name,
     type,
     data,
-    assetInfoFallback,
-    assetDataOverride
+    assetInfoFallback
   ) => {
     return uploadToS3({
       signer,
@@ -51,19 +42,10 @@ export const createS3AssetObjectStore = (
       bucket: options.bucket,
       acl: options.acl,
       assetInfoFallback,
-      assetDataOverride,
     });
   };
 
   return {
     uploadFile,
-    readFile: (name, range) =>
-      readFromS3({
-        signer,
-        name,
-        range,
-        endpoint: options.endpoint,
-        bucket: options.bucket,
-      }),
   };
 };

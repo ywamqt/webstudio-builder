@@ -1,3 +1,1 @@
-
-    export const redirects = [];
-    
+export const redirects = [];

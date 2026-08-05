@@ -6,7 +6,6 @@ import {
 } from "@webstudio-is/trpc-interface/index.server";
 import { db as authDb } from "@webstudio-is/authorization-token/index.server";
 import {
-  dataSource,
   type Deployment,
   type Resource,
   type StyleSource,
@@ -21,7 +20,6 @@ import {
   migratePages,
   serializePages,
 } from "@webstudio-is/project-migrations/pages";
-import { migrateResourcesMutable } from "@webstudio-is/project-migrations/resources";
 import type { Build, CompactBuild } from "../types";
 import { parseDeployment } from "./deployment";
 import { marketplaceProduct } from "../shared/marketplace";
@@ -76,8 +74,6 @@ const parseCompactBuild = async (
   build: Database["public"]["Tables"]["Build"]["Row"]
 ) => {
   const pages = migratePages(parseConfig<unknown>(build.pages));
-  const resources = parseCompactData<Resource>(build.resources);
-  migrateResourcesMutable(resources);
   const parsedProjectSettings =
     build.projectSettings === undefined || build.projectSettings === null
       ? createProjectSettingsFromPages(pages)
@@ -97,10 +93,8 @@ const parseCompactBuild = async (
       build.styleSourceSelections
     ),
     props: parseCompactData<Prop>(build.props),
-    dataSources: parseCompactData<unknown>(build.dataSources).map((value) =>
-      dataSource.parse(value)
-    ),
-    resources,
+    dataSources: parseCompactData<DataSource>(build.dataSources),
+    resources: parseCompactData<Resource>(build.resources),
     instances: parseCompactInstanceData(build.instances),
     deployment: parseDeployment(build.deployment),
     marketplaceProduct: parseMarketplaceProduct(build.marketplaceProduct),

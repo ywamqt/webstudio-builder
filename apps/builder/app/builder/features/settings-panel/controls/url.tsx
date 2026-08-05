@@ -29,24 +29,26 @@ import {
   type Page,
 } from "@webstudio-is/sdk";
 import { $instances, $pages, $props } from "~/shared/sync/data-stores";
+import {
+  BindingControl,
+  BindingPopover,
+} from "~/builder/shared/binding-popover";
 import { validatePrimitiveValue } from "@webstudio-is/project-build/runtime";
 import { useDraftValue } from "~/builder/shared/use-draft-value";
-import {
-  BindableExpressionControl,
-  updateBindableValue,
-} from "~/builder/shared/bindable-expression";
 import { getPageDisplayName } from "~/builder/features/pages/page-utils";
 import {
   type ControlProps,
   VerticalLayout,
   Label,
+  updateExpressionValue,
+  $selectedInstanceScope,
+  useBindingState,
   humanizeAttribute,
   type PropValue,
 } from "../shared";
 import { SelectAsset } from "./select-asset";
 import { createRootFolder } from "@webstudio-is/project-build";
 import { PropertyLabel } from "../property-label";
-import { useBindableControl } from "./use-bindable-control";
 
 type UrlControlProps = ControlProps<"url">;
 
@@ -108,11 +110,11 @@ const addHttpsIfMissing = (url: string) => {
 
 const BaseUrl = ({ readOnly, prop, value, onChange, id }: BaseControlProps) => {
   const localValue = useDraftValue(value, (value) => {
-    updateBindableValue({
-      expression: prop?.type === "expression" ? prop.value : undefined,
-      value,
-      onChangeValue: (value) => onChange({ type: "string", value }),
-    });
+    if (prop?.type === "expression") {
+      updateExpressionValue(prop.value, value);
+    } else {
+      onChange({ type: "string", value });
+    }
   });
 
   useEffect(() => {
@@ -154,12 +156,11 @@ const BasePhone = ({
   const localValue = useDraftValue(
     value.startsWith("tel:") ? value.slice(4) : "",
     (value) => {
-      const nextValue = `tel:${value}`;
-      updateBindableValue({
-        expression: prop?.type === "expression" ? prop.value : undefined,
-        value: nextValue,
-        onChangeValue: (value) => onChange({ type: "string", value }),
-      });
+      if (prop?.type === "expression") {
+        updateExpressionValue(prop.value, `tel:${value}`);
+      } else {
+        onChange({ type: "string", value: `tel:${value}` });
+      }
     }
   );
 
@@ -233,11 +234,11 @@ const BaseEmail = ({
 }: BaseControlProps) => {
   const localValue = useDraftValue(propToEmail(value), ({ email, subject }) => {
     const value = emailToProp({ email, subject });
-    updateBindableValue({
-      expression: prop?.type === "expression" ? prop.value : undefined,
-      value,
-      onChangeValue: (value) => onChange({ type: "string", value }),
-    });
+    if (prop?.type === "expression") {
+      updateExpressionValue(prop.value, value);
+    } else {
+      onChange({ type: "string", value });
+    }
   });
 
   return (
@@ -482,14 +483,14 @@ export const UrlInput = ({
   value,
   readOnly = false,
   onChange,
-  renderControl,
+  suffix,
 }: {
   instanceId: string;
   prop: UrlInputProp;
   value: string;
   readOnly?: boolean;
   onChange: (value: UrlInputValue) => void;
-  renderControl?: (control: ReactNode) => ReactNode;
+  suffix?: ReactNode;
 }) => {
   const { value: mode, set: setMode } = useDraftValue<Mode>(
     propToMode(prop, value),
@@ -536,7 +537,14 @@ export const UrlInput = ({
           ))}
         </ToggleGroup>
       </Flex>
-      {renderControl?.(control) ?? control}
+      {suffix === undefined ? (
+        control
+      ) : (
+        <BindingControl>
+          {control}
+          {suffix}
+        </BindingControl>
+      )}
     </>
   );
 };
@@ -551,10 +559,12 @@ export const UrlControl = ({
 }: UrlControlProps) => {
   const value = String(computedValue ?? "");
   const label = humanizeAttribute(meta.label || propName);
-  const binding = useBindableControl({
-    boundExpression: prop?.type === "expression" ? prop.value : undefined,
-    fallbackExpression: JSON.stringify(computedValue),
-  });
+  const { scope, aliases } = useStore($selectedInstanceScope);
+  const expression =
+    prop?.type === "expression" ? prop.value : JSON.stringify(computedValue);
+  const { overwritable, variant } = useBindingState(
+    prop?.type === "expression" ? prop.value : undefined
+  );
 
   return (
     <VerticalLayout label={<PropertyLabel name={propName} />}>
@@ -569,23 +579,23 @@ export const UrlControl = ({
             : undefined
         }
         value={value}
-        readOnly={binding.bindingState.overwritable === false}
+        readOnly={overwritable === false}
         onChange={onChange}
-        renderControl={(control) => (
-          <BindableExpressionControl
-            {...binding}
-            value={value}
+        suffix={
+          <BindingPopover
+            scope={scope}
+            aliases={aliases}
             validate={(value) => validatePrimitiveValue(value, label)}
-            onChangeValue={(value) => onChange({ type: "string", value })}
-            onChangeExpression={(value) =>
-              onChange({ type: "expression", value })
+            variant={variant}
+            value={expression}
+            onChange={(newExpression) =>
+              onChange({ type: "expression", value: newExpression })
             }
-            onRemove={(value) =>
-              onChange({ type: "string", value: String(value) })
+            onRemove={(evaluatedValue) =>
+              onChange({ type: "string", value: String(evaluatedValue) })
             }
-            renderControl={() => control}
           />
-        )}
+        }
       />
     </VerticalLayout>
   );

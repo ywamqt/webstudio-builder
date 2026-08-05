@@ -1,54 +1,66 @@
 import { json, type ActionFunctionArgs } from "@remix-run/server-runtime";
-import { assetResourceApiOperations } from "@webstudio-is/protocol/asset-resource-api";
-import { preventCrossOriginCookie } from "~/services/no-cross-origin-cookie";
-import { privateNoStoreResponseHeaders } from "~/services/cache-control.server";
-import { createAssetContentLoader } from "~/services/asset-rest-route-handlers.server";
-import { ensureApiCsrf } from "~/services/api-auth.server";
 import {
-  assetRestErrorResponse,
-  assetRestMethodNotAllowed,
-  createAssetRestRepository,
-  parseAssetRestFilename,
-  parseAssetRestIdentifier,
-  requireAssetRestBody,
-} from "~/services/asset-rest.server";
+  AssetRevisionConflictError,
+  updateAssetContent,
+} from "@webstudio-is/asset-uploader/index.server";
+import type { Asset } from "@webstudio-is/sdk";
+import { createAssetClient } from "~/shared/asset-client";
+import { createContext } from "~/shared/context.server";
+import { preventCrossOriginCookie } from "~/services/no-cross-origin-cookie";
+import { checkCsrf } from "~/services/csrf-session.server";
+import { parseError } from "~/shared/error/error-parse";
+import { privateNoStoreResponseHeaders } from "~/services/cache-control.server";
 
-export const loader = createAssetContentLoader();
+export type AssetContentActionResponse = { asset: Asset } | { errors: string };
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
   preventCrossOriginCookie(request);
-  if (
-    request.method.toLowerCase() !==
-    assetResourceApiOperations.replaceAssetContent.method
-  ) {
-    return assetRestMethodNotAllowed([
-      assetResourceApiOperations.replaceAssetContent,
-    ]);
+  if (request.headers.has("x-auth-token") === false) {
+    await checkCsrf(request);
   }
-  await ensureApiCsrf(request);
 
   try {
-    const assetId = parseAssetRestIdentifier(params.assetId);
+    if (request.method !== "PUT" || request.body === null) {
+      return json(
+        { errors: "Method not allowed" } satisfies AssetContentActionResponse,
+        { status: 405, headers: privateNoStoreResponseHeaders }
+      );
+    }
+    if (params.assetId === undefined) {
+      throw new Error("Asset id is required");
+    }
 
     const url = new URL(request.url);
-    const expectedName = parseAssetRestFilename(
-      url.searchParams.get("expectedName")
-    );
+    const projectId = url.searchParams.get("projectId");
+    const expectedName = url.searchParams.get("expectedName");
+    if (projectId === null || expectedName === null) {
+      throw new Error("Project id and expected asset name are required");
+    }
 
-    const asset = await (
-      await createAssetRestRepository(request, "edit")
-    ).updateContent({
-      assetId,
-      expectedName,
-      data: requireAssetRestBody(request),
-    });
-    return json(
-      { asset },
+    const context = await createContext(request);
+    const asset = await updateAssetContent(
       {
+        assetId: params.assetId,
+        projectId,
+        expectedName,
+        data: request.body,
+      },
+      createAssetClient(),
+      context
+    );
+    return json({ asset } satisfies AssetContentActionResponse, {
+      headers: privateNoStoreResponseHeaders,
+    });
+  } catch (error) {
+    console.error(error);
+    return json(
+      {
+        errors: parseError(error).message,
+      } satisfies AssetContentActionResponse,
+      {
+        status: error instanceof AssetRevisionConflictError ? 409 : 400,
         headers: privateNoStoreResponseHeaders,
       }
     );
-  } catch (error) {
-    return assetRestErrorResponse(error);
   }
 };

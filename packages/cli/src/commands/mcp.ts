@@ -7,20 +7,15 @@ import {
   createMcpStdioTransport,
   getProjectSessionMcpCheckpoint,
   isReadOnlyProjectSessionMcpToolCall,
-  type ProjectSessionPreviewInput,
-  type ProjectSessionScreenshotInput,
   type ProjectSessionMcpTool,
 } from "@webstudio-is/project-build/mcp";
-import {
-  getProjectBasicAuthCredentials,
-  type BuilderNamespace,
-} from "@webstudio-is/project-build/contracts";
+import type { BuilderNamespace } from "@webstudio-is/project-build/contracts";
 import { diffPngFiles } from "@webstudio-is/project-build/visual";
 import {
   publicApiOperationRequiresServerSupport,
   publicApiOperations,
 } from "@webstudio-is/protocol";
-import * as httpClient from "@webstudio-is/http-client";
+import { importProjectBundleWithAssets } from "@webstudio-is/http-client";
 import packageJson from "../../package.json" with { type: "json" };
 import type { ProjectSessionSnapshot } from "@webstudio-is/project-build/project-session";
 import type { SemanticValidationIssue } from "@webstudio-is/project-build/runtime";
@@ -28,6 +23,7 @@ import { resolveApiConnection } from "../api-connection";
 import {
   getCliErrorIssues,
   getCliErrorMessage,
+  getCliErrorSummary,
   getStableErrorCode,
   isMissingApiAccessError,
 } from "../error-codes";
@@ -40,7 +36,6 @@ import {
   getCliProjectRestorePointsFile,
   getCliServerApiContract,
   getSupportedPublicApiOperations,
-  loadCliProjectSessionAssetIndex,
   type CliServerApiContract,
   writeCliProjectSessionDataFile,
 } from "../project-session";
@@ -56,7 +51,6 @@ import {
   createLocalUpdateAssetContentInput,
   downloadAssetFile,
   getLocalAssetPath,
-  LOCAL_ASSETS_DIR,
 } from "../asset-files";
 import {
   getVisionVerificationLoop,
@@ -76,10 +70,7 @@ import {
 } from "./mcp-batch";
 import { apiCompatibilityHeaders } from "./api";
 import { importProject as importProjectCommand } from "./import";
-import {
-  createMcpPreviewHandlers,
-  createPreviewFreshness,
-} from "./mcp-preview";
+import { createMcpPreviewHandlers } from "./mcp-preview";
 import type {
   CommonYargsArgv,
   StrictYargsOptionsToInterface,
@@ -343,13 +334,6 @@ export const mcpOptions = (yargs: CommonYargsArgv) =>
       type: "string",
       describe:
         "Saved project id to use without changing this directory's linked project",
-    })
-    .option("tool-name-format", {
-      type: "string",
-      choices: ["canonical", "underscores"] as const,
-      default: "canonical" as const,
-      describe:
-        "Format exposed MCP tool names for clients with stricter naming rules",
     })
     .command(
       ["list-tools"],
@@ -696,14 +680,14 @@ const getMcpRunError = (error: unknown) => {
       code: isMissingApiAccessError(error)
         ? "UNAUTHORIZED"
         : (error.code ?? "MCP_TOOL_FAILED"),
-      message: getCliErrorMessage(error),
+      message: getCliErrorSummary(error),
       ...(issues === undefined ? {} : { issues }),
     };
   }
   const code = isMissingApiAccessError(error)
     ? "UNAUTHORIZED"
     : (getStableErrorCode(error) ?? "MCP_TOOL_FAILED");
-  const message = getCliErrorMessage(error);
+  const message = getCliErrorSummary(error);
   return { code, message, ...(issues === undefined ? {} : { issues }) };
 };
 
@@ -839,72 +823,6 @@ const assertSingleOpCallToolSupported = (tool: string) => {
   }
 };
 
-const resolveMcpPreviewInput = async (
-  input: ProjectSessionPreviewInput,
-  getAvailablePort: (host?: string) => Promise<number> = findAvailablePort
-) => {
-  if (input.port !== undefined && input.port !== 0) {
-    return input;
-  }
-  return {
-    ...input,
-    port: await getAvailablePort(input.host ?? "127.0.0.1"),
-  };
-};
-
-const resolveMcpScreenshotInput = async (
-  input: ProjectSessionScreenshotInput,
-  previewStatus: { running: boolean; url: string },
-  getAvailablePort: (host?: string) => Promise<number> = findAvailablePort
-) => {
-  if (
-    input.url !== undefined ||
-    input.baseUrl !== undefined ||
-    input.source === "local" ||
-    (input.port !== undefined && input.port !== 0)
-  ) {
-    return input;
-  }
-  const host = input.host ?? "127.0.0.1";
-  if (previewStatus.running) {
-    const previewUrl = new URL(previewStatus.url);
-    if (input.host === undefined || previewUrl.hostname === input.host) {
-      const previewPort = Number(previewUrl.port);
-      if (Number.isInteger(previewPort) && previewPort > 0) {
-        return { ...input, port: previewPort };
-      }
-    }
-  }
-  return { ...input, port: await getAvailablePort(host) };
-};
-
-const startMcpPreview = async <Result>({
-  input,
-  startPreview,
-  getAvailablePort = findAvailablePort,
-  sleep = async (durationMs) =>
-    await new Promise<void>((resolve) => setTimeout(resolve, durationMs)),
-}: {
-  input: ProjectSessionPreviewInput;
-  startPreview: (input: ProjectSessionPreviewInput) => Promise<Result>;
-  getAvailablePort?: (host?: string) => Promise<number>;
-  sleep?: (durationMs: number) => Promise<void>;
-}) => {
-  const attempts = input.port === undefined || input.port === 0 ? 5 : 1;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const resolvedInput = await resolveMcpPreviewInput(input, getAvailablePort);
-    try {
-      return await startPreview(resolvedInput);
-    } catch (error) {
-      if (attempt === attempts - 1) {
-        throw error;
-      }
-      await sleep(500);
-    }
-  }
-  throw new Error("MCP preview did not start.");
-};
-
 const createCliMcpHost = async ({
   projectRoot = cwd(),
   projectId,
@@ -943,66 +861,42 @@ const createCliMcpHost = async ({
   );
   await prepareMcpProjectSession(session);
   const preview = createPreviewController({ host: "127.0.0.1", port: 5173 });
-  const previewFreshness = createPreviewFreshness();
+  let isPreviewStale = true;
+  const markPreviewStale = () => {
+    isPreviewStale = true;
+  };
   const previewHandlers = createMcpPreviewHandlers({
     preview,
     createCaptureSession: createScreenshotCaptureSession,
-    isStale: previewFreshness.isStale,
-    captureFreshness: previewFreshness.capture,
-    markFresh: previewFreshness.markFresh,
-    getHttpCredentials: (pagePath) =>
-      getProjectBasicAuthCredentials(
-        getLoadedProjectSessionSnapshot(session).state.projectSettings?.meta
-          .auth,
-        pagePath
-      ),
+    isStale: () => isPreviewStale,
+    markFresh: () => {
+      isPreviewStale = false;
+    },
     prepareSessionDataFile: async () => {
-      const snapshot = getLoadedProjectSessionSnapshot(session);
-      const assetIndex = await loadCliProjectSessionAssetIndex(
-        snapshot,
-        apiConnection,
-        path.join(projectRoot, LOCAL_ASSETS_DIR)
-      );
       await writeCliProjectSessionDataFile(
-        snapshot,
+        getLoadedProjectSessionSnapshot(session),
         path.join(projectRoot, LOCAL_DATA_FILE),
-        { origin: connection.origin, assetIndex }
+        { origin: connection.origin }
       );
     },
   });
-  type ScreenshotResult = Awaited<
-    ReturnType<typeof previewHandlers.captureScreenshot>
-  >;
-  type ResizedScreenshotResult = Awaited<
-    ReturnType<typeof previewHandlers.capturePageScreenshots>
-  >[number];
   const toProjectSessionScreenshotResult = (
-    result: ScreenshotResult | ResizedScreenshotResult
-  ) => {
-    const navigation = result.navigation ?? result.layout?.navigation;
-    return {
-      output: result.output,
-      browserPath: result.browser.path,
-      browser: result.browser.browser,
-      viewport: result.viewport,
-      fullPage: result.fullPage,
-      elapsedMs: result.elapsedMs,
-      warnings: result.warnings,
-      previewMode: result.previewMode,
-      renderedProjectId: navigation?.projectId,
-      renderedProjectVersion: navigation?.projectVersion,
-      ...("lifecycleTimings" in result
-        ? { lifecycleTimings: result.lifecycleTimings }
-        : {}),
-      navigation: result.navigation,
-      layout: result.layout,
-      timings: result.timings,
-    };
-  };
+    result: Awaited<ReturnType<typeof previewHandlers.captureScreenshot>>
+  ) => ({
+    output: result.output,
+    browserPath: result.browser.path,
+    browser: result.browser.browser,
+    viewport: result.viewport,
+    fullPage: result.fullPage,
+    elapsedMs: result.elapsedMs,
+    warnings: result.warnings,
+    navigation: result.navigation,
+    layout: result.layout,
+    timings: result.timings,
+  });
   const host: CliMcpHost = {
     operations,
     createProjectSession: () => session,
-    onProjectSessionChange: previewFreshness.markStale,
     executeOperation: async ({ command, input, dryRun }) => {
       const result = await executeProjectSessionApiOperation({
         command,
@@ -1012,7 +906,7 @@ const createCliMcpHost = async ({
         dryRun,
       });
       if (dryRun !== true && shouldInvalidatePreview(command)) {
-        previewFreshness.markStale();
+        markPreviewStale();
       }
       return result;
     },
@@ -1036,11 +930,7 @@ const createCliMcpHost = async ({
             code: "NOT_FOUND",
           });
         }
-        const result = await session.restoreSnapshot(restorePoint, { dryRun });
-        if (dryRun !== true) {
-          previewFreshness.markStale();
-        }
-        return result;
+        return await session.restoreSnapshot(restorePoint, { dryRun });
       },
     },
     async importProject(input) {
@@ -1054,8 +944,7 @@ const createCliMcpHost = async ({
             skipAssets: input.skipAssets,
           },
           {
-            importProjectBundleWithAssets:
-              httpClient.importProjectBundleWithAssets,
+            importProjectBundleWithAssets,
             loadJSONFile,
             readFile,
             text: async () => {
@@ -1072,7 +961,7 @@ const createCliMcpHost = async ({
         }
         throw error;
       }
-      previewFreshness.markStale();
+      markPreviewStale();
       return { imported: true as const };
     },
     async downloadAsset(input) {
@@ -1092,39 +981,29 @@ const createCliMcpHost = async ({
       };
     },
     async startPreview(input, progress) {
-      return await startMcpPreview({
-        input,
-        startPreview: async (resolvedInput) =>
-          await previewHandlers.startPreview(resolvedInput, progress),
-      });
+      const resolvedInput =
+        input.port === 0
+          ? {
+              ...input,
+              port: await findAvailablePort(input.host ?? "127.0.0.1"),
+            }
+          : input;
+      const result = await previewHandlers.startPreview(
+        resolvedInput,
+        progress
+      );
+      return result;
     },
     async getPreviewStatus() {
       return preview.status();
     },
     stopPreview: previewHandlers.stopPreview,
     async captureScreenshot(input) {
-      const resolvedInput = await resolveMcpScreenshotInput(
-        input,
-        preview.status()
-      );
-      const result = await previewHandlers.captureScreenshot(resolvedInput);
+      const result = await previewHandlers.captureScreenshot(input);
       return toProjectSessionScreenshotResult(result);
     },
     async capturePageScreenshots(inputs) {
-      const firstInput = inputs[0];
-      if (firstInput === undefined) {
-        return [];
-      }
-      const resolvedFirstInput = await resolveMcpScreenshotInput(
-        firstInput,
-        preview.status()
-      );
-      const resolvedInputs = inputs.map((input) => ({
-        ...input,
-        port: resolvedFirstInput.port,
-      }));
-      const results =
-        await previewHandlers.capturePageScreenshots(resolvedInputs);
+      const results = await previewHandlers.capturePageScreenshots(inputs);
       return results.map(toProjectSessionScreenshotResult);
     },
     async diffScreenshots(input) {
@@ -1255,9 +1134,6 @@ export const __testing__ = {
   readPersistedMcpCheckpoint,
   updatePersistedMcpCheckpoint,
   executeMcpRunCall,
-  resolveMcpPreviewInput,
-  resolveMcpScreenshotInput,
-  startMcpPreview,
 };
 
 export const mcpSingleOpCall = async (options: McpSingleOpCallOptions) => {
@@ -1645,12 +1521,7 @@ export const mcpReadResource = async (options: McpReadResourceOptions) => {
   }
 };
 
-export const mcp = async (
-  options: {
-    project?: string;
-    toolNameFormat?: "canonical" | "underscores";
-  } = {}
-) => {
+export const mcp = async (options: { project?: string } = {}) => {
   const status = createMcpStatusReporter();
   let didReportClose = false;
   const reportClose = () => {
@@ -1671,7 +1542,6 @@ export const mcp = async (
   status.ready(toolCount);
   const server = await connectProjectSessionMcpServer({
     ...host,
-    toolNameFormat: options.toolNameFormat,
     getErrorCode: getStableErrorCode,
     reportLog: (_level, message) => {
       reportLog(message);
