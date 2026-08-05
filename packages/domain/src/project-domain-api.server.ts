@@ -208,6 +208,7 @@ export const publishProject = async (
     builderOrigin: env.BUILDER_ORIGIN,
     githubSha: env.GITHUB_SHA,
     buildId: build.id,
+    domains: domains, // Added by m8jj to send domain info to publisher
     branchName: env.GITHUB_REF_NAME,
     destination: "saas",
     logProjectName: `${project.title} - ${project.id}`,

@@ -86,6 +86,22 @@ export const domainRouter = router({
           return { success: true as const };
         }
 
+        if (input.destination === "saas") {
+          const project = await projectApi.loadById(input.projectId, ctx);
+          const domains = getVerifiedPublishDomains(project, input.domains);
+          /* --- Edited by m8jj --- */
+          // await publishProject({ project, domains }, ctx);
+          const { build, proj, deploymentNotImplemented } = await publishProject({ project, domains }, ctx);
+          
+          await ctx.postgrest.client
+              .from("Build")
+              .update({ publishStatus: "PUBLISHED" })
+              .eq("id", build.id);
+          /* ------ */
+          
+          return { success: true as const };
+        }
+
         const result = await publishStaticProject(
           {
             projectId: input.projectId,
