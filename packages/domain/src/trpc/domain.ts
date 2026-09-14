@@ -13,6 +13,7 @@ import { db } from "../db";
 import { isDomainUsingCloudflareNameservers } from "../rdap";
 import {
   getVerifiedPublishDomains,
+  getPublishTargetForDomains,
   createProjectDomainResult,
   deleteProjectDomainResult,
   publishProject,
