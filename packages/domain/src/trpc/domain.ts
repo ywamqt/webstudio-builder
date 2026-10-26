@@ -83,7 +83,9 @@ export const domainRouter = router({
         if (input.destination === publishedDeploymentDestination) {
           const project = await projectApi.loadById(input.projectId, ctx);
           const domains = getVerifiedPublishDomains(project, input.domains);
-          await publishProject(
+          /* --- Edited by m8jj --- */
+          // await publishProject({ project, domains }, ctx);
+          const { build, proj, deploymentNotImplemented } = await publishProject(
             {
               project,
               domains,
@@ -91,6 +93,13 @@ export const domainRouter = router({
             },
             ctx
           );
+          
+          await ctx.postgrest.client
+              .from("Build")
+              .update({ publishStatus: "PUBLISHED" })
+              .eq("id", build.id);
+          /* ------ */
+          
           return { success: true as const };
         }
 
